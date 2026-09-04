@@ -78,6 +78,8 @@ enum PowerLogParser {
         }
     }
 
+    private static let fetchTimeout: TimeInterval = 15
+
     private static func runPmsetLog() -> String? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/pmset")
@@ -87,17 +89,35 @@ enum PowerLogParser {
         process.standardOutput = pipe
         process.standardError = Pipe()
 
-        do {
-            try process.run()
-        } catch {
-            print("StayAwake: Failed to run pmset -g log: \(error)")
+        let semaphore = DispatchSemaphore(value: 0)
+        var output: String?
+        var exitStatus: Int32 = -1
+
+        DispatchQueue.global(qos: .utility).async {
+            defer { semaphore.signal() }
+
+            do {
+                try process.run()
+            } catch {
+                print("StayAwake: Failed to run pmset -g log: \(error)")
+                return
+            }
+
+            process.waitUntilExit()
+            exitStatus = process.terminationStatus
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            output = String(data: data, encoding: .utf8)
+        }
+
+        if semaphore.wait(timeout: .now() + fetchTimeout) == .timedOut {
+            if process.isRunning {
+                process.terminate()
+            }
+            print("StayAwake: pmset -g log timed out after \(Int(fetchTimeout))s")
             return nil
         }
 
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else { return nil }
-
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        return String(data: data, encoding: .utf8)
+        guard exitStatus == 0 else { return nil }
+        return output
     }
 }

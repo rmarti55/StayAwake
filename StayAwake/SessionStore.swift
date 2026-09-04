@@ -31,9 +31,9 @@ final class SessionStore: ObservableObject {
     init() {
         bootTime = Self.readBootTime()
         loadPersistedEvents()
-        seedFromPowerLog()
         recomputeDerivedState()
         registerWorkspaceObservers()
+        seedFromPowerLogAsync()
     }
 
     deinit {
@@ -117,11 +117,18 @@ final class SessionStore: ObservableObject {
         persistEvents()
     }
 
-    private func seedFromPowerLog() {
-        let cutoff = max(bootTime, Date().addingTimeInterval(-Self.timelineWindow))
-        let seeded = PowerLogParser.fetchEvents(since: cutoff)
-        appendEvents(seeded)
-        persistEvents()
+    private func seedFromPowerLogAsync() {
+        let bootTime = bootTime
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let cutoff = max(bootTime, Date().addingTimeInterval(-Self.timelineWindow))
+            let seeded = PowerLogParser.fetchEvents(since: cutoff)
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.appendEvents(seeded)
+                self.recomputeDerivedState()
+                self.persistEvents()
+            }
+        }
     }
 
     private func appendEvents(_ newEvents: [PowerEvent]) {
