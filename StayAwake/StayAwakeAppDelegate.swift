@@ -16,6 +16,7 @@ final class StayAwakeAppDelegate: NSObject, NSApplicationDelegate, NSPopoverDele
     private var statusItem: NSStatusItem!
     private var popover: NSPopover!
     private var popoverHostingController: NSHostingController<StatusPopoverView>!
+    private var outsideClickMonitor: Any?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupStatusItem()
@@ -26,6 +27,7 @@ final class StayAwakeAppDelegate: NSObject, NSApplicationDelegate, NSPopoverDele
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        removeOutsideClickMonitor()
         sessionStore.stopLiveUpdates()
         if let revealObserver {
             DistributedNotificationCenter.default().removeObserver(revealObserver)
@@ -38,6 +40,7 @@ final class StayAwakeAppDelegate: NSObject, NSApplicationDelegate, NSPopoverDele
     }
 
     func popoverDidClose(_ notification: Notification) {
+        removeOutsideClickMonitor()
         sessionStore.stopLiveUpdates()
     }
 
@@ -116,7 +119,41 @@ final class StayAwakeAppDelegate: NSObject, NSApplicationDelegate, NSPopoverDele
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         }
 
+        installOutsideClickMonitor()
         sessionStore.startLiveUpdates()
+    }
+
+    private func installOutsideClickMonitor() {
+        removeOutsideClickMonitor()
+
+        outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+            self?.closePopoverIfClickedOutside()
+        }
+    }
+
+    private func removeOutsideClickMonitor() {
+        if let outsideClickMonitor {
+            NSEvent.removeMonitor(outsideClickMonitor)
+            self.outsideClickMonitor = nil
+        }
+    }
+
+    private func closePopoverIfClickedOutside() {
+        guard popover.isShown else { return }
+
+        let clickLocation = NSEvent.mouseLocation
+        if isClickOnStatusItem(at: clickLocation) {
+            return
+        }
+
+        popover.performClose(nil)
+    }
+
+    private func isClickOnStatusItem(at screenLocation: NSPoint) -> Bool {
+        guard let button = statusItem.button, let window = button.window else { return false }
+
+        let buttonFrame = window.convertToScreen(button.convert(button.bounds, to: nil))
+        return buttonFrame.contains(screenLocation)
     }
 
     private func updateStatusItemIcon() {
