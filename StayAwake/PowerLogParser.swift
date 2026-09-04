@@ -27,9 +27,25 @@ enum PowerLogParser {
         return formatter
     }()
 
+    private static let eventGrepPattern = #"^\d{4}-.*\t(Sleep|Wake|DarkWake|Shutdown|Restart)[[:space:]]"#
+    private static let wakeGrepPattern = #"^\d{4}-.*\tWake[[:space:]]"#
+    private static let fetchTimeout: TimeInterval = 15
+
     static func fetchEvents(since cutoff: Date) -> [PowerEvent] {
-        guard let output = runPmsetLog() else { return [] }
+        guard let output = runFilteredPmsetLog(grepPattern: eventGrepPattern, tailLines: 5000) else {
+            return []
+        }
         return parse(log: output, since: cutoff)
+    }
+
+    static func fetchLastWake(since bootTime: Date) -> Date? {
+        guard let output = runFilteredPmsetLog(grepPattern: wakeGrepPattern, tailLines: 1) else {
+            return nil
+        }
+
+        return parse(log: output, since: bootTime)
+            .last(where: { $0.kind == .wake })?
+            .date
     }
 
     static func parse(log: String, since cutoff: Date) -> [PowerEvent] {
@@ -78,19 +94,22 @@ enum PowerLogParser {
         }
     }
 
-    private static let fetchTimeout: TimeInterval = 15
+    private static func runFilteredPmsetLog(grepPattern: String, tailLines: Int) -> String? {
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("stayawake-pmset-\(UUID().uuidString).txt")
+        defer { try? FileManager.default.removeItem(at: tempURL) }
 
-    private static func runPmsetLog() -> String? {
+        let script = """
+        /usr/bin/pmset -g log 2>/dev/null | /usr/bin/grep -E '\(grepPattern)' | /usr/bin/tail -\(tailLines) > '\(tempURL.path)'
+        """
+
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/pmset")
-        process.arguments = ["-g", "log"]
-
-        let pipe = Pipe()
-        process.standardOutput = pipe
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = ["-c", script]
+        process.standardOutput = Pipe()
         process.standardError = Pipe()
 
         let semaphore = DispatchSemaphore(value: 0)
-        var output: String?
         var exitStatus: Int32 = -1
 
         DispatchQueue.global(qos: .utility).async {
@@ -99,25 +118,23 @@ enum PowerLogParser {
             do {
                 try process.run()
             } catch {
-                print("StayAwake: Failed to run pmset -g log: \(error)")
+                print("StayAwake: Failed to run filtered pmset log: \(error)")
                 return
             }
 
             process.waitUntilExit()
             exitStatus = process.terminationStatus
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            output = String(data: data, encoding: .utf8)
         }
 
         if semaphore.wait(timeout: .now() + fetchTimeout) == .timedOut {
             if process.isRunning {
                 process.terminate()
             }
-            print("StayAwake: pmset -g log timed out after \(Int(fetchTimeout))s")
+            print("StayAwake: filtered pmset log timed out after \(Int(fetchTimeout))s")
             return nil
         }
 
         guard exitStatus == 0 else { return nil }
-        return output
+        return try? String(contentsOf: tempURL, encoding: .utf8)
     }
 }

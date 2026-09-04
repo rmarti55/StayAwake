@@ -20,6 +20,8 @@ final class SessionStore: ObservableObject {
     @Published private(set) var timelineSegments: [TimelineSegment] = []
 
     private var events: [PowerEvent] = []
+    private var isSeeding = false
+    private static let powerLogQueue = DispatchQueue(label: "com.stayawake.powerlog", qos: .utility)
     private var liveUpdateTimer: Timer?
     private var sleepObserver: NSObjectProtocol?
     private var wakeObserver: NSObjectProtocol?
@@ -33,7 +35,7 @@ final class SessionStore: ObservableObject {
         loadPersistedEvents()
         recomputeDerivedState()
         registerWorkspaceObservers()
-        seedFromPowerLogAsync()
+        loadPowerHistoryAsync()
     }
 
     deinit {
@@ -52,6 +54,7 @@ final class SessionStore: ObservableObject {
     func startLiveUpdates() {
         now = Date()
         recomputeDerivedState()
+        retrySeedIfNeeded()
 
         guard liveUpdateTimer == nil else { return }
 
@@ -67,6 +70,11 @@ final class SessionStore: ObservableObject {
     func stopLiveUpdates() {
         liveUpdateTimer?.invalidate()
         liveUpdateTimer = nil
+    }
+
+    private func retrySeedIfNeeded() {
+        guard events.isEmpty else { return }
+        seedFromPowerLogAsync()
     }
 
     private func registerWorkspaceObservers() {
@@ -117,18 +125,28 @@ final class SessionStore: ObservableObject {
         persistEvents()
     }
 
-    private func seedFromPowerLogAsync() {
+    private func loadPowerHistoryAsync() {
+        guard !isSeeding else { return }
+        isSeeding = true
+
         let bootTime = bootTime
-        DispatchQueue.global(qos: .utility).async { [weak self] in
+        Self.powerLogQueue.async { [weak self] in
             let cutoff = max(bootTime, Date().addingTimeInterval(-Self.timelineWindow))
             let seeded = PowerLogParser.fetchEvents(since: cutoff)
+
             DispatchQueue.main.async {
                 guard let self else { return }
+                self.isSeeding = false
                 self.appendEvents(seeded)
                 self.recomputeDerivedState()
                 self.persistEvents()
+                print("StayAwake: seeded \(seeded.count) power events from pmset")
             }
         }
+    }
+
+    private func seedFromPowerLogAsync() {
+        loadPowerHistoryAsync()
     }
 
     private func appendEvents(_ newEvents: [PowerEvent]) {
@@ -232,6 +250,10 @@ final class SessionStore: ObservableObject {
     private func persistEvents() {
         guard let url = Self.persistenceURL else { return }
 
+        if events.isEmpty, Self.persistenceHasEvents() {
+            return
+        }
+
         do {
             try FileManager.default.createDirectory(
                 at: url.deletingLastPathComponent(),
@@ -242,6 +264,18 @@ final class SessionStore: ObservableObject {
         } catch {
             print("StayAwake: Failed to persist session events: \(error)")
         }
+    }
+
+    private static func persistenceHasEvents() -> Bool {
+        guard
+            let url = persistenceURL,
+            let data = try? Data(contentsOf: url),
+            let decoded = try? JSONDecoder().decode([PowerEvent].self, from: data)
+        else {
+            return false
+        }
+
+        return !decoded.isEmpty
     }
 
     private static var persistenceURL: URL? {

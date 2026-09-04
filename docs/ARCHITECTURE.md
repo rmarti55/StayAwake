@@ -105,7 +105,10 @@ Icon: SF Symbol `cup.and.saucer` (outline) or `cup.and.saucer.fill` (when either
 
 Event sources:
 
-- **Seed on launch:** `pmset -g log` parsed by `PowerLogParser` (Sleep, Wake, DarkWake, Shutdown, Restart)
+- **Seed on launch:** filtered `pmset -g log | grep | tail` parsed by `PowerLogParser` (~3s vs full 50k-line dump)
+- **Last-wake fallback:** quick `grep Wake | tail -1` on init so "Awake since sleep" is correct before full seed completes
+- **Retry:** if events are still empty when the popover opens, seed runs again
+- **Persistence guard:** empty seed results do not overwrite a non-empty `events.json`
 - **Live while running:** `NSWorkspace.willSleepNotification`, `didWakeNotification`, `willPowerOffNotification`
 - **Persistence:** `~/Library/Application Support/StayAwake/events.json`
 

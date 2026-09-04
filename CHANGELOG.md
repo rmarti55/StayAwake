@@ -18,6 +18,10 @@ Versioning: `CFBundleShortVersionString` (marketing) + `CFBundleVersion` / `CURR
 - Replaced dropdown `NSMenu` with `NSPopover` hosting SwiftUI (`StatusPopoverView`)
 - Reveal-on-reopen and duplicate launch now open the popover instead of the old menu
 
+### Fixed
+
+- **Sleep clock and timeline wrong after launch:** pmset full-log seed often timed out, leaving `events.json` empty; now uses filtered `grep | tail` pipeline (~3s), quick last-wake fallback, popover retry, and safe persistence
+
 ## [1.0] — build 2 — 2026-09-03
 
 ### Fixed
