@@ -15,7 +15,9 @@ flowchart TB
     Lock -->|ok| Delegate[StayAwakeAppDelegate]
   end
   subgraph ui [UI]
-    Delegate --> StatusItem[NSStatusItem + NSMenu]
+    Delegate --> StatusItem[NSStatusItem + NSPopover]
+    StatusItem --> PopoverView[StatusPopoverView - SwiftUI]
+    PopoverView --> SessionStore[SessionStore - uptime + timeline]
   end
   subgraph power [Sleep prevention]
     Delegate --> PowerMgr[PowerAssertionManager]
@@ -32,7 +34,11 @@ flowchart TB
 | File | Role |
 |---|---|
 | [`StayAwakeApp.swift`](../StayAwake/StayAwakeApp.swift) | `@main` entry, acquires instance lock, dummy SwiftUI `Settings` scene |
-| [`StayAwakeAppDelegate.swift`](../StayAwake/StayAwakeAppDelegate.swift) | `NSStatusItem`, menu, icon updates, reveal-on-reopen |
+| [`StayAwakeAppDelegate.swift`](../StayAwake/StayAwakeAppDelegate.swift) | `NSStatusItem`, popover toggle, icon updates, reveal-on-reopen |
+| [`StatusPopoverView.swift`](../StayAwake/StatusPopoverView.swift) | SwiftUI popover: uptime stats, 24h timeline, keep-awake toggles |
+| [`SessionStore.swift`](../StayAwake/SessionStore.swift) | Boot/wake clocks, sleep/wake observers, `pmset` seed, event persistence |
+| [`PowerLogParser.swift`](../StayAwake/PowerLogParser.swift) | Parse `pmset -g log` into sleep/wake events |
+| [`DurationFormatter.swift`](../StayAwake/DurationFormatter.swift) | Human-readable duration strings (`2d 4h 12m`) |
 | [`DuplicateLaunchHandler.swift`](../StayAwake/DuplicateLaunchHandler.swift) | Second launch → post reveal notification, activate running instance, exit |
 | [`AppInstanceLock.swift`](../StayAwake/AppInstanceLock.swift) | `flock` single-instance lock in `~/Library/Caches/StayAwake/stayawake.lock` |
 | [`PowerAssertionManager.swift`](../StayAwake/PowerAssertionManager.swift) | Coordinates lid-open IOKit assertions and lid-closed clamshell controller |
@@ -58,24 +64,54 @@ Scripts:
    - Exits immediately (no alert)
 3. If lock succeeds → app runs normally.
 4. **`StayAwakeAppDelegate.applicationDidFinishLaunching`** creates the status item and menu.
-5. On **`applicationShouldHandleReopen`** or reveal notification → `revealStatusItem()` sets `isVisible = true` and `performClick` on the status button to open the menu.
+5. On **`applicationShouldHandleReopen`** or reveal notification → `revealStatusItem()` sets `isVisible = true` and shows the popover.
 
 ## Menu bar UI
 
-Implemented in `StayAwakeAppDelegate` with AppKit, not SwiftUI `MenuBarExtra`.
+Implemented in `StayAwakeAppDelegate` with AppKit status item + `NSPopover` hosting SwiftUI, not SwiftUI `MenuBarExtra`.
 
 **Design decisions (do not revert lightly):**
 
 | Decision | Why |
 |---|---|
 | `NSStatusItem` instead of `MenuBarExtra` | SwiftUI extra could vanish from the menu bar; activation-policy flips made it worse |
+| `NSPopover` instead of `NSMenu` | Room for uptime stats and a 24h timeline without cramming into menu rows |
 | `LSUIElement` stays `true` | Menu bar only — no Dock clutter |
-| Reveal notification on duplicate launch | Clicking the app in Applications must open the menu when already running |
+| Reveal notification on duplicate launch | Clicking the app in Applications must open the popover when already running |
 | `statusItem.behavior = []` (macOS 14+) | Prevents dragging the icon off the bar into invisible limbo |
 | No autosave name on status item | Autosave can persist a "hidden" state across launches |
 | `isVisible = true` on every launch | Belt-and-suspenders against hidden state |
+| Live 1s timer only while popover is open | Avoids background timer when panel is closed |
 
 Icon: SF Symbol `cup.and.saucer` (outline) or `cup.and.saucer.fill` (when either keep-awake toggle is on).
+
+### Popover contents
+
+`StatusPopoverView` shows:
+
+1. **Up since reboot** — wall clock since `kern.boottime` (sleep does not reset)
+2. **Awake since sleep** — wall clock since last full `Wake` event (or boot if none)
+3. **Last 24 hours** — horizontal bar of awake vs asleep segments
+4. Keep Awake toggles, Start at Login, Quit
+
+## Uptime and sleep tracking
+
+`SessionStore` maintains two distinct clocks:
+
+| Clock | Source | Resets on sleep? |
+|---|---|---|
+| Up since reboot | `sysctl kern.boottime` | No |
+| Awake since sleep | Latest `Wake` event since boot | Yes |
+
+Event sources:
+
+- **Seed on launch:** `pmset -g log` parsed by `PowerLogParser` (Sleep, Wake, DarkWake, Shutdown, Restart)
+- **Live while running:** `NSWorkspace.willSleepNotification`, `didWakeNotification`, `willPowerOffNotification`
+- **Persistence:** `~/Library/Application Support/StayAwake/events.json`
+
+DarkWake counts as asleep (machine is not fully awake). Display-only sleep is ignored.
+
+Timeline segments are rebuilt from merged events over a rolling 24-hour window.
 
 ## Sleep prevention
 
@@ -141,6 +177,6 @@ Sources: `user`, `init`, `external`.
 
 | Name | Purpose |
 |---|---|
-| `com.stayawake.app.reveal` | Duplicate launch tells running instance to show status item and open menu |
+| `com.stayawake.app.reveal` | Duplicate launch tells running instance to show status item and open popover |
 
 Defined in `StayAwakeNotifications.reveal` in `StayAwakeAppDelegate.swift`. Posted via `DistributedNotificationCenter`.

@@ -8,7 +8,15 @@ Versioning: `CFBundleShortVersionString` (marketing) + `CFBundleVersion` / `CURR
 
 ### Added
 
+- **Menu popover UI** — click the cup icon to open a panel with uptime stats, 24h sleep/wake timeline, and keep-awake toggles
+- **Two uptime clocks** — "Up since reboot" (sleep does not reset) and "Awake since sleep" (resets on sleep)
+- **Session tracking** — `SessionStore` seeds from `pmset -g log`, records live sleep/wake events, persists to Application Support
 - Documentation suite: `README.md`, `docs/TROUBLESHOOTING.md`, `docs/ARCHITECTURE.md`, `CHANGELOG.md`
+
+### Changed
+
+- Replaced dropdown `NSMenu` with `NSPopover` hosting SwiftUI (`StatusPopoverView`)
+- Reveal-on-reopen and duplicate launch now open the popover instead of the old menu
 
 ## [1.0] — build 2 — 2026-09-03
 

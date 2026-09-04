@@ -21,19 +21,23 @@ Requirements: Xcode command-line tools (`xcodebuild`, `iconutil`).
 ## Daily use
 
 1. Look for the **cup icon** in the menu bar (filled when a keep-awake mode is on).
-2. Click the cup to open the menu.
-3. If you don't see the cup, click **StayAwake** in Applications — that reveals the icon and opens the menu.
+2. Click the cup to open the **popover panel**.
+3. If you don't see the cup, click **StayAwake** in Applications — that reveals the icon and opens the panel.
 
-### Menu options
+### Popover
 
-| Option | What it does |
+| Section | What it shows |
 |---|---|
-| **Keep Awake (Lid Open)** | Prevents idle system and display sleep while the lid is open |
-| **Keep Awake (Lid Closed)** | Disables clamshell sleep so the Mac stays awake with the lid shut (runs hot — use with care) |
+| **Up since reboot** | Time since last boot (`kern.boottime`). Sleep does **not** reset this. |
+| **Awake since sleep** | Time since the last full wake. Sleep **does** reset this. |
+| **Last 24 hours** | A bar of awake (accent) vs asleep (gray) stretches over the past day |
+| **Keep Awake toggles** | Same lid-open / lid-closed controls as before |
 | **Start at Login** | Registers StayAwake to launch at login via `SMAppService` |
 | **Quit** | Releases power assertions and exits |
 
-Toggle states persist across relaunch in UserDefaults.
+The two clocks are different: a Mac that slept overnight can still show days of reboot uptime while "awake since sleep" shows only the current stretch.
+
+Toggle states persist across relaunch in UserDefaults. Sleep/wake history is persisted at `~/Library/Application Support/StayAwake/events.json`.
 
 ## Rebuild after code changes
 

@@ -16,6 +16,10 @@
 		AA0000010000000000000007 /* AppInstanceLock.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000008 /* AppInstanceLock.swift */; };
 		AA0000010000000000000008 /* DuplicateLaunchHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000009 /* DuplicateLaunchHandler.swift */; };
 		AA0000010000000000000009 /* StayAwakeAppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000010 /* StayAwakeAppDelegate.swift */; };
+		AA0000010000000000000010 /* PowerLogParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000011 /* PowerLogParser.swift */; };
+		AA0000010000000000000011 /* SessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000012 /* SessionStore.swift */; };
+		AA0000010000000000000012 /* StatusPopoverView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000013 /* StatusPopoverView.swift */; };
+		AA0000010000000000000013 /* DurationFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000014 /* DurationFormatter.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -29,6 +33,10 @@
 		AA0000020000000000000008 /* AppInstanceLock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppInstanceLock.swift; sourceTree = "<group>"; };
 		AA0000020000000000000009 /* DuplicateLaunchHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DuplicateLaunchHandler.swift; sourceTree = "<group>"; };
 		AA0000020000000000000010 /* StayAwakeAppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StayAwakeAppDelegate.swift; sourceTree = "<group>"; };
+		AA0000020000000000000011 /* PowerLogParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PowerLogParser.swift; sourceTree = "<group>"; };
+		AA0000020000000000000012 /* SessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionStore.swift; sourceTree = "<group>"; };
+		AA0000020000000000000013 /* StatusPopoverView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusPopoverView.swift; sourceTree = "<group>"; };
+		AA0000020000000000000014 /* DurationFormatter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DurationFormatter.swift; sourceTree = "<group>"; };
 		AA0000030000000000000001 /* StayAwake.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = StayAwake.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -62,6 +70,10 @@
 				AA0000020000000000000008 /* AppInstanceLock.swift */,
 				AA0000020000000000000009 /* DuplicateLaunchHandler.swift */,
 				AA0000020000000000000010 /* StayAwakeAppDelegate.swift */,
+				AA0000020000000000000011 /* PowerLogParser.swift */,
+				AA0000020000000000000012 /* SessionStore.swift */,
+				AA0000020000000000000013 /* StatusPopoverView.swift */,
+				AA0000020000000000000014 /* DurationFormatter.swift */,
 				AA0000020000000000000004 /* Assets.xcassets */,
 				AA0000020000000000000005 /* Info.plist */,
 			);
@@ -153,6 +165,10 @@
 				AA0000010000000000000007 /* AppInstanceLock.swift in Sources */,
 				AA0000010000000000000008 /* DuplicateLaunchHandler.swift in Sources */,
 				AA0000010000000000000009 /* StayAwakeAppDelegate.swift in Sources */,
+				AA0000010000000000000010 /* PowerLogParser.swift in Sources */,
+				AA0000010000000000000011 /* SessionStore.swift in Sources */,
+				AA0000010000000000000012 /* StatusPopoverView.swift in Sources */,
+				AA0000010000000000000013 /* DurationFormatter.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

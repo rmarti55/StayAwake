@@ -47,5 +47,5 @@ touch "$INSTALL_APP"
 echo "Launching..."
 open "$INSTALL_APP"
 
-echo "Done. If Start at Login is enabled, toggle it off and on once in the menu"
+echo "Done. If Start at Login is enabled, toggle it off and on once in the popover"
 echo "so macOS registers the /Applications path."

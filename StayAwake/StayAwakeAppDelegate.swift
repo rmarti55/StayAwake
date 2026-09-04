@@ -1,34 +1,32 @@
 import AppKit
 import Combine
+import SwiftUI
 
 enum StayAwakeNotifications {
     static let reveal = Notification.Name("com.stayawake.app.reveal")
 }
 
-final class StayAwakeAppDelegate: NSObject, NSApplicationDelegate {
+final class StayAwakeAppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private let powerManager = PowerAssertionManager()
     private let launchAtLogin = LaunchAtLogin()
+    private let sessionStore = SessionStore()
     private var cancellables = Set<AnyCancellable>()
     private var revealObserver: NSObjectProtocol?
 
     private var statusItem: NSStatusItem!
-    private var menu: NSMenu!
-    private var lidOpenMenuItem: NSMenuItem!
-    private var lidClosedMenuItem: NSMenuItem!
-    private var clamshellActiveMenuItem: NSMenuItem!
-    private var clamshellWarningMenuItem: NSMenuItem!
-    private var launchAtLoginMenuItem: NSMenuItem!
+    private var popover: NSPopover!
+    private var popoverHostingController: NSHostingController<StatusPopoverView>!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupStatusItem()
-        setupMenu()
+        setupPopover()
         bindStateChanges()
         registerRevealObserver()
         updateStatusItemIcon()
-        updateClamshellMenuItems()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        sessionStore.stopLiveUpdates()
         if let revealObserver {
             DistributedNotificationCenter.default().removeObserver(revealObserver)
         }
@@ -39,6 +37,10 @@ final class StayAwakeAppDelegate: NSObject, NSApplicationDelegate {
         return true
     }
 
+    func popoverDidClose(_ notification: Notification) {
+        sessionStore.stopLiveUpdates()
+    }
+
     private func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if #available(macOS 14.0, *) {
@@ -46,73 +48,32 @@ final class StayAwakeAppDelegate: NSObject, NSApplicationDelegate {
         }
         statusItem.isVisible = true
         statusItem.button?.toolTip = "StayAwake"
+        statusItem.button?.target = self
+        statusItem.button?.action = #selector(togglePopover(_:))
     }
 
-    private func setupMenu() {
-        menu = NSMenu()
+    private func setupPopover() {
+        popover = NSPopover()
+        popover.behavior = .transient
+        popover.delegate = self
 
-        lidOpenMenuItem = NSMenuItem(
-            title: "Keep Awake (Lid Open)",
-            action: #selector(toggleLidOpen(_:)),
-            keyEquivalent: ""
+        let contentView = StatusPopoverView(
+            sessionStore: sessionStore,
+            powerManager: powerManager,
+            launchAtLogin: launchAtLogin,
+            onQuit: { [weak self] in
+                self?.quit()
+            }
         )
-        lidOpenMenuItem.target = self
-        menu.addItem(lidOpenMenuItem)
 
-        lidClosedMenuItem = NSMenuItem(
-            title: "Keep Awake (Lid Closed)",
-            action: #selector(toggleLidClosed(_:)),
-            keyEquivalent: ""
-        )
-        lidClosedMenuItem.target = self
-        menu.addItem(lidClosedMenuItem)
-
-        clamshellActiveMenuItem = NSMenuItem(
-            title: "Clamshell override: active",
-            action: nil,
-            keyEquivalent: ""
-        )
-        clamshellActiveMenuItem.isEnabled = false
-        menu.addItem(clamshellActiveMenuItem)
-
-        clamshellWarningMenuItem = NSMenuItem(
-            title: "Lid closed runs hot — use with care",
-            action: nil,
-            keyEquivalent: ""
-        )
-        clamshellWarningMenuItem.isEnabled = false
-        let warningFont = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
-        clamshellWarningMenuItem.attributedTitle = NSAttributedString(
-            string: "Lid closed runs hot — use with care",
-            attributes: [.font: warningFont, .foregroundColor: NSColor.secondaryLabelColor]
-        )
-        menu.addItem(clamshellWarningMenuItem)
-
-        menu.addItem(.separator())
-
-        launchAtLoginMenuItem = NSMenuItem(
-            title: "Start at Login",
-            action: #selector(toggleLaunchAtLogin(_:)),
-            keyEquivalent: ""
-        )
-        launchAtLoginMenuItem.target = self
-        menu.addItem(launchAtLoginMenuItem)
-
-        menu.addItem(.separator())
-
-        let quitItem = NSMenuItem(title: "Quit", action: #selector(quit(_:)), keyEquivalent: "q")
-        quitItem.target = self
-        menu.addItem(quitItem)
-
-        statusItem.menu = menu
-        syncMenuStates()
+        popoverHostingController = NSHostingController(rootView: contentView)
+        popover.contentViewController = popoverHostingController
     }
 
     private func bindStateChanges() {
         powerManager.$isLidOpenAwakeEnabled
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
-                self?.syncMenuStates()
                 self?.updateStatusItemIcon()
             }
             .store(in: &cancellables)
@@ -120,16 +81,7 @@ final class StayAwakeAppDelegate: NSObject, NSApplicationDelegate {
         powerManager.$isLidClosedAwakeEnabled
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
-                self?.syncMenuStates()
                 self?.updateStatusItemIcon()
-                self?.updateClamshellMenuItems()
-            }
-            .store(in: &cancellables)
-
-        launchAtLogin.$isEnabled
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                self?.syncMenuStates()
             }
             .store(in: &cancellables)
     }
@@ -146,19 +98,25 @@ final class StayAwakeAppDelegate: NSObject, NSApplicationDelegate {
 
     private func revealStatusItem() {
         statusItem.isVisible = true
-        statusItem.button?.performClick(nil)
+        showPopover()
     }
 
-    private func syncMenuStates() {
-        lidOpenMenuItem.state = powerManager.isLidOpenAwakeEnabled ? .on : .off
-        lidClosedMenuItem.state = powerManager.isLidClosedAwakeEnabled ? .on : .off
-        launchAtLoginMenuItem.state = launchAtLogin.isEnabled ? .on : .off
+    @objc private func togglePopover(_ sender: Any?) {
+        if popover.isShown {
+            popover.performClose(sender)
+        } else {
+            showPopover()
+        }
     }
 
-    private func updateClamshellMenuItems() {
-        let showClamshellInfo = powerManager.isLidClosedAwakeEnabled
-        clamshellActiveMenuItem.isHidden = !showClamshellInfo
-        clamshellWarningMenuItem.isHidden = !showClamshellInfo
+    private func showPopover() {
+        guard let button = statusItem.button else { return }
+
+        if !popover.isShown {
+            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        }
+
+        sessionStore.startLiveUpdates()
     }
 
     private func updateStatusItemIcon() {
@@ -175,19 +133,8 @@ final class StayAwakeAppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    @objc private func toggleLidOpen(_ sender: NSMenuItem) {
-        powerManager.isLidOpenAwakeEnabled.toggle()
-    }
-
-    @objc private func toggleLidClosed(_ sender: NSMenuItem) {
-        powerManager.isLidClosedAwakeEnabled.toggle()
-    }
-
-    @objc private func toggleLaunchAtLogin(_ sender: NSMenuItem) {
-        launchAtLogin.setEnabled(!launchAtLogin.isEnabled)
-    }
-
-    @objc private func quit(_ sender: NSMenuItem) {
+    private func quit() {
+        popover.performClose(nil)
         powerManager.cleanupOnQuit()
         AppInstanceLock.release()
         NSApp.terminate(nil)

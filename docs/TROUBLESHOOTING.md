@@ -7,7 +7,7 @@ Personal cheat sheet for when StayAwake feels broken or invisible.
 ```bash
 pgrep -l StayAwake                    # is it running?
 killall StayAwake                     # force quit
-open /Applications/StayAwake.app      # launch or reveal menu
+open /Applications/StayAwake.app      # launch or reveal popover
 tail -f ~/Library/Logs/StayAwake.log  # watch toggle log
 defaults read com.stayawake.app       # read persisted toggles
 ```
@@ -20,7 +20,7 @@ defaults read com.stayawake.app       # read persisted toggles
 
 **Fix:**
 1. Look for the **cup icon** in the menu bar (top-right, near WiFi/battery/time).
-2. Click **StayAwake** in Applications again — the running instance reveals the icon and opens the menu.
+2. Click **StayAwake** in Applications again — the running instance reveals the icon and opens the popover.
 
 ---
 
@@ -28,7 +28,7 @@ defaults read com.stayawake.app       # read persisted toggles
 
 **Cause (old builds):** A ghost process held the instance lock while the SwiftUI `MenuBarExtra` icon had vanished. Relaunching only showed an alert and quit.
 
-**Fix (current build):** Clicking StayAwake in Applications sends a reveal notification to the running instance instead of showing a dialog. The menu should pop open.
+**Fix (current build):** Clicking StayAwake in Applications sends a reveal notification to the running instance instead of showing a dialog. The popover should appear.
 
 If still stuck:
 
@@ -46,7 +46,7 @@ Or quit via **Activity Monitor** → search "StayAwake" → Quit.
 **Cause:** Either macOS menu bar overflow (`>>` / Control Center area hides extra icons), or an old build where the icon vanished.
 
 **Fix:**
-1. Click **StayAwake** in Applications to force-reveal and open the menu.
+1. Click **StayAwake** in Applications to force-reveal and open the popover.
 2. Check the **overflow area** on the right side of the menu bar.
 3. Reinstall if on an old build:
 
@@ -62,7 +62,7 @@ Or quit via **Activity Monitor** → search "StayAwake" → Quit.
 
 **Fix:**
 1. Run `./scripts/install.sh` to install to `/Applications`.
-2. Open the StayAwake menu → turn **Start at Login** **off**, then **on** again.
+2. Open the StayAwake popover → turn **Start at Login** **off**, then **on** again.
 
 Verify in System Settings → General → Login Items.
 
