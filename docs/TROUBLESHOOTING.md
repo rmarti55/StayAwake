@@ -43,16 +43,23 @@ Or quit via **Activity Monitor** → search "StayAwake" → Quit.
 
 ### Cup icon missing from menu bar
 
-**Cause:** Either macOS menu bar overflow (`>>` / Control Center area hides extra icons), or an old build where the icon vanished.
+**Cause:** One of:
+- macOS menu bar overflow (`>>` / Control Center area hides extra icons)
+- An old build where the SwiftUI `MenuBarExtra` icon vanished
+- **macOS 26 (Tahoe):** Control Center hosts third-party menu bar icons and can block or park them off-screen while the app still runs (popover may open from an invisible slot)
 
 **Fix:**
-1. Click **StayAwake** in Applications to force-reveal and open the popover.
+1. Click **StayAwake** in Applications — current builds try to reveal the cup and open the popover.
 2. Check the **overflow area** on the right side of the menu bar.
-3. Reinstall if on an old build:
+3. Open **System Settings → Menu Bar** and make sure **StayAwake** is allowed.
+4. If the cup is still missing, scroll to the bottom of Menu Bar settings and choose **Reset Control Center…** (restores menu bar layout; clears Tahoe's blocked-item ledger).
+5. Reinstall if on an old build:
 
 ```bash
 ./scripts/install.sh
 ```
+
+**Tahoe note:** If StayAwake was launched from Terminal, Cursor, or another IDE during development, macOS may have recorded its bundle id under that app's menu bar entry. Turning off the parent app's menu bar permission can block StayAwake even when StayAwake's own toggle is on. Reset Control Center or re-enable the parent app in Menu Bar settings.
 
 ---
 
