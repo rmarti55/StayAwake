@@ -43,23 +43,26 @@ Or quit via **Activity Monitor** → search "StayAwake" → Quit.
 
 ### Cup icon missing from menu bar
 
-**Cause:** One of:
-- macOS menu bar overflow (`>>` / Control Center area hides extra icons)
-- An old build where the SwiftUI `MenuBarExtra` icon vanished
-- **macOS 26 (Tahoe):** Control Center hosts third-party menu bar icons and can block or park them off-screen while the app still runs (popover may open from an invisible slot)
+**Cause:** On MacBooks with a notch, macOS lays out menu bar items right-to-left. If the bar is crowded, items that land under the camera notch (typically the leftmost third-party icons) are hidden — not moved to overflow. StayAwake used to have no saved position, so every reinstall placed it in the notch slot. The popover can still open from the invisible slot when you click StayAwake in Applications.
 
-**Fix:**
-1. Click **StayAwake** in Applications — current builds try to reveal the cup and open the popover.
-2. Check the **overflow area** on the right side of the menu bar.
-3. Open **System Settings → Menu Bar** and make sure **StayAwake** is allowed.
-4. If the cup is still missing, scroll to the bottom of Menu Bar settings and choose **Reset Control Center…** (restores menu bar layout; clears Tahoe's blocked-item ledger).
-5. Reinstall if on an old build:
+**Fix (current build):**
+1. StayAwake pins itself to the far-right menu bar slot (position 0) on every launch.
+2. Click **StayAwake** in Applications — it opens the popover even if the cup icon is hard to see.
+3. If the cup is still missing, quit or hide other menu bar apps, or hold **Command** and drag icons to rearrange.
+4. Check `~/Library/Logs/StayAwake.log` for a `[menubar]` line showing item position vs notch range.
+
+**Manual check:**
+
+```bash
+defaults read com.apple.controlcenter "NSStatusItem Preferred Position StayAwakeStatusItem"
+# Should show 0
+```
+
+Reinstall if on an old build:
 
 ```bash
 ./scripts/install.sh
 ```
-
-**Tahoe note:** If StayAwake was launched from Terminal, Cursor, or another IDE during development, macOS may have recorded its bundle id under that app's menu bar entry. Turning off the parent app's menu bar permission can block StayAwake even when StayAwake's own toggle is on. Reset Control Center or re-enable the parent app in Menu Bar settings.
 
 ---
 

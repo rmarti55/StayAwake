@@ -21,6 +21,8 @@
 		AA0000010000000000000012 /* StatusPopoverView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000013 /* StatusPopoverView.swift */; };
 		AA0000010000000000000013 /* DurationFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000014 /* DurationFormatter.swift */; };
 		AA0000010000000000000014 /* BatteryMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000015 /* BatteryMonitor.swift */; };
+		AA0000010000000000000015 /* LidStateMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000016 /* LidStateMonitor.swift */; };
+		AA0000010000000000000016 /* BatteryCutoffAlert.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000017 /* BatteryCutoffAlert.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -39,6 +41,8 @@
 		AA0000020000000000000013 /* StatusPopoverView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusPopoverView.swift; sourceTree = "<group>"; };
 		AA0000020000000000000014 /* DurationFormatter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DurationFormatter.swift; sourceTree = "<group>"; };
 		AA0000020000000000000015 /* BatteryMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatteryMonitor.swift; sourceTree = "<group>"; };
+		AA0000020000000000000016 /* LidStateMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LidStateMonitor.swift; sourceTree = "<group>"; };
+		AA0000020000000000000017 /* BatteryCutoffAlert.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatteryCutoffAlert.swift; sourceTree = "<group>"; };
 		AA0000030000000000000001 /* StayAwake.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = StayAwake.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -77,6 +81,8 @@
 				AA0000020000000000000013 /* StatusPopoverView.swift */,
 				AA0000020000000000000014 /* DurationFormatter.swift */,
 				AA0000020000000000000015 /* BatteryMonitor.swift */,
+				AA0000020000000000000016 /* LidStateMonitor.swift */,
+				AA0000020000000000000017 /* BatteryCutoffAlert.swift */,
 				AA0000020000000000000004 /* Assets.xcassets */,
 				AA0000020000000000000005 /* Info.plist */,
 			);
@@ -173,6 +179,8 @@
 				AA0000010000000000000012 /* StatusPopoverView.swift in Sources */,
 				AA0000010000000000000013 /* DurationFormatter.swift in Sources */,
 				AA0000010000000000000014 /* BatteryMonitor.swift in Sources */,
+				AA0000010000000000000015 /* LidStateMonitor.swift in Sources */,
+				AA0000010000000000000016 /* BatteryCutoffAlert.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

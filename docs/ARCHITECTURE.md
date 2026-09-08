@@ -44,6 +44,8 @@ flowchart TB
 | [`AppInstanceLock.swift`](../StayAwake/AppInstanceLock.swift) | `flock` single-instance lock in `~/Library/Caches/StayAwake/stayawake.lock` |
 | [`PowerAssertionManager.swift`](../StayAwake/PowerAssertionManager.swift) | Coordinates lid-open IOKit assertions, lid-closed clamshell controller, and battery cutoff policy |
 | [`BatteryMonitor.swift`](../StayAwake/BatteryMonitor.swift) | IOKit Power Sources: AC vs battery, remaining percent, change notifications |
+| [`LidStateMonitor.swift`](../StayAwake/LidStateMonitor.swift) | Lid open/closed via IOKit clamshell state and built-in display detection |
+| [`BatteryCutoffAlert.swift`](../StayAwake/BatteryCutoffAlert.swift) | Low-battery warning dialog (Sleep Now / Keep Going) for lid-open cutoff |
 | [`ClamshellSleepController.swift`](../StayAwake/ClamshellSleepController.swift) | Kernel clamshell override via `AppleClamshellCausesSleep` |
 | [`LaunchAtLogin.swift`](../StayAwake/LaunchAtLogin.swift) | `SMAppService.mainApp` register/unregister |
 | [`ToggleLogger.swift`](../StayAwake/ToggleLogger.swift) | Append-only log at `~/Library/Logs/StayAwake.log` |
@@ -81,7 +83,9 @@ Implemented in `StayAwakeAppDelegate` with AppKit status item + `NSPopover` host
 | `LSUIElement` stays `true` | Menu bar only — no Dock clutter |
 | Reveal notification on duplicate launch | Clicking the app in Applications must open the popover when already running |
 | `statusItem.behavior = []` (macOS 14+) | Prevents dragging the icon off the bar into invisible limbo |
-| No autosave name on status item | Autosave can persist a "hidden" state across launches |
+| `autosaveName = "StayAwakeStatusItem"` | Lets macOS persist position; paired with explicit pin on launch |
+| Pin `NSStatusItem Preferred Position` to 0 on every launch | Keeps the cup at the far-right edge (away from the notch on crowded bars) |
+| `[menubar]` launch log | Records item frame vs notch range for debugging; no user-facing alert |
 | `isVisible = true` on every launch | Belt-and-suspenders against hidden state |
 | Live 1s timer only while popover is open | Avoids background timer when panel is closed |
 
@@ -146,16 +150,20 @@ On disable/quit, restores clamshell sleep unless "official clamshell mode" is ac
 
 ### Battery sleep cutoff
 
-When **Sleep at battery** is set (5%, 10%, or 20%) and either keep-awake toggle is on:
+`BatteryMonitor` reads battery level; `LidStateMonitor` reads lid open/closed. When **Sleep at battery** is set (5%, 10%, or 20%) and remaining percent hits the floor on battery power:
 
-1. `BatteryMonitor` reads the internal battery via IOKit Power Sources (`IOPS*` APIs) and listens for power-source changes.
-2. On **AC power** or desktops without an internal battery, cutoff never fires.
-3. On battery, when remaining percent drops to or below the threshold:
-   - Keep-awake is **suspended** (assertions released, clamshell override disabled) without changing the user's toggles.
-   - `pmset sleepnow` requests sleep once per cutoff episode.
-4. After wake or plug-in, keep-awake resumes only when on AC **or** remaining percent is above the threshold. Waking still at/below the floor on battery triggers sleep again.
+| Lid state | Keep-awake mode | Behavior |
+|---|---|---|
+| Closed | Lid Closed on | **Silent sleep** — suspend keep-awake, `pmset sleepnow` (10s debounce) |
+| Open | Lid Open on | **Warning dialog** — Sleep Now / Keep Going (30 min snooze) |
+| Closed + both on | Both | Silent path wins |
+| Open + both on | Both | Dialog path |
 
-UserDefaults key: `stayawake.batterySleepThreshold` (`0` = off, else `5` / `10` / `20`).
+- On **AC power**, cutoff never fires.
+- After wake on battery with lid **closed**, silent cutoff may re-fire. With lid **open**, no auto-resleep loop (fixes flicker).
+- UI: **Sleep at battery** picker lives under **Keep Awake (Lid Closed)**.
+
+UserDefaults keys: `stayawake.batterySleepThreshold` (`0` = off), `stayawake.batteryCutoffSnoozeUntil` (Unix timestamp).
 
 ## Persistence
 
@@ -166,6 +174,7 @@ UserDefaults keys (domain `com.stayawake.app`):
 | `stayawake.lidOpenAwake` | Keep Awake (Lid Open) |
 | `stayawake.lidClosedAwake` | Keep Awake (Lid Closed) |
 | `stayawake.batterySleepThreshold` | Sleep at battery floor (`0`, `5`, `10`, or `20`) |
+| `stayawake.batteryCutoffSnoozeUntil` | Unix timestamp — lid-open cutoff snoozed until this time |
 
 `PowerAssertionManager` syncs from UserDefaults every 2 seconds and on `UserDefaults.didChangeNotification` so external changes (e.g. `defaults write`) are picked up.
 
@@ -180,9 +189,10 @@ Start at Login state comes from `SMAppService.mainApp.status`, not UserDefaults.
 2026-09-03T22:15:00.456Z [init] Keep Awake (Lid Closed): enabled=false
 2026-09-03T22:16:00.789Z [external] Start at Login: false -> true
 2026-09-03T23:00:00.000Z [battery] battery cutoff: 9% <= 10% → sleep
+2026-09-03T23:01:00.000Z [menubar] item x=1536..1568, notch=771..956, visible=true, blocked=false
 ```
 
-Sources: `user`, `init`, `external`, `battery`.
+Sources: `user`, `init`, `external`, `battery`, `menubar`.
 
 ## Build and install
 

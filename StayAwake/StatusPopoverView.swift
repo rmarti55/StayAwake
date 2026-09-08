@@ -83,10 +83,17 @@ struct StatusPopoverView: View {
     private var controlsSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             Toggle("Keep Awake (Lid Open)", isOn: $powerManager.isLidOpenAwakeEnabled)
+
+            if powerManager.isLidOpenAwakeEnabled {
+                Text("Low battery shows a warning before sleeping (lid open only)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Toggle("Keep Awake (Lid Closed)", isOn: $powerManager.isLidClosedAwakeEnabled)
 
             if powerManager.isLidClosedAwakeEnabled {
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 6) {
                     if powerManager.isClamshellOverrideActive {
                         Text("Clamshell override: active")
                             .font(.caption)
@@ -95,10 +102,10 @@ struct StatusPopoverView: View {
                     Text("Lid closed runs hot — use with care")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+
+                    lidClosedBatterySection
                 }
             }
-
-            batteryCutoffSection
 
             Toggle("Start at Login", isOn: Binding(
                 get: { launchAtLogin.isEnabled },
@@ -112,10 +119,8 @@ struct StatusPopoverView: View {
         }
     }
 
-    private var batteryCutoffSection: some View {
-        let keepAwakeEnabled = powerManager.isKeepAwakeEnabledForUI
-
-        return VStack(alignment: .leading, spacing: 6) {
+    private var lidClosedBatterySection: some View {
+        VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text("Sleep at battery")
                     .font(.body)
@@ -129,13 +134,12 @@ struct StatusPopoverView: View {
                 .pickerStyle(.menu)
                 .frame(maxWidth: 72)
             }
-            .disabled(!keepAwakeEnabled)
 
-            if !keepAwakeEnabled {
-                Text("Turn on a keep-awake toggle to use this")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            } else if powerManager.hasInternalBattery {
+            Text("Silent sleep when lid is closed and battery hits this level")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            if powerManager.hasInternalBattery {
                 batteryStatusCaption
             }
         }
@@ -149,8 +153,14 @@ struct StatusPopoverView: View {
                     .foregroundStyle(.secondary)
             }
 
-            if powerManager.isBatteryCutoffArmed {
-                Text("Sleeping at \(powerManager.batterySleepThreshold.label)")
+            if powerManager.isBatteryCutoffArmed && powerManager.batterySleepThreshold != .off {
+                Text("Limit: \(powerManager.batterySleepThreshold.label)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            if powerManager.isBatteryCutoffSnoozed {
+                Text("Battery warning snoozed — Keep Going active")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -161,12 +171,6 @@ struct StatusPopoverView: View {
                     .foregroundStyle(.orange)
             }
         }
-    }
-}
-
-private extension PowerAssertionManager {
-    var isKeepAwakeEnabledForUI: Bool {
-        isLidOpenAwakeEnabled || isLidClosedAwakeEnabled
     }
 }
 

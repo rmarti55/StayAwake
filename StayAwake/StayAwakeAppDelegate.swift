@@ -8,6 +8,8 @@ enum StayAwakeNotifications {
 
 final class StayAwakeAppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private static let statusItemAutosaveName = "StayAwakeStatusItem"
+    /// Distance from the screen's right edge; lower = further right.
+    private static let preferredPosition: Double = 0
     private static let menuBarIconPointSize: CGFloat = 16
     private static let menuBarIconDimension: CGFloat = 18
 
@@ -22,8 +24,7 @@ final class StayAwakeAppDelegate: NSObject, NSApplicationDelegate, NSPopoverDele
     private var popover: NSPopover!
     private var popoverHostingController: NSHostingController<StatusPopoverView>!
     private var outsideClickMonitor: Any?
-    private var hasAttemptedStatusItemRecovery = false
-    private var hasShownBlockedAlert = false
+    private var hasLoggedMenuBarVisibility = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupStatusItem()
@@ -61,6 +62,7 @@ final class StayAwakeAppDelegate: NSObject, NSApplicationDelegate, NSPopoverDele
     }
 
     private func setupStatusItem() {
+        pinStatusItemPosition()
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem.autosaveName = Self.statusItemAutosaveName
         if #available(macOS 14.0, *) {
@@ -73,11 +75,33 @@ final class StayAwakeAppDelegate: NSObject, NSApplicationDelegate, NSPopoverDele
         statusItem.button?.imageScaling = .scaleProportionallyDown
     }
 
+    private func pinStatusItemPosition() {
+        let positionKey = "NSStatusItem Preferred Position \(Self.statusItemAutosaveName)"
+        let visibleKey = "NSStatusItem Visible \(Self.statusItemAutosaveName)"
+
+        UserDefaults.standard.set(Self.preferredPosition, forKey: positionKey)
+
+        if let controlCenterDefaults = UserDefaults(suiteName: "com.apple.controlcenter") {
+            controlCenterDefaults.set(Self.preferredPosition, forKey: positionKey)
+            controlCenterDefaults.set(true, forKey: visibleKey)
+        }
+    }
+
     private func recreateStatusItem() {
         if let existingItem = statusItem {
             NSStatusBar.system.removeStatusItem(existingItem)
         }
-        setupStatusItem()
+        pinStatusItemPosition()
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        statusItem.autosaveName = Self.statusItemAutosaveName
+        if #available(macOS 14.0, *) {
+            statusItem.behavior = []
+        }
+        statusItem.isVisible = true
+        statusItem.button?.toolTip = "StayAwake"
+        statusItem.button?.target = self
+        statusItem.button?.action = #selector(togglePopover(_:))
+        statusItem.button?.imageScaling = .scaleProportionallyDown
         updateStatusItemIcon()
     }
 
@@ -138,12 +162,6 @@ final class StayAwakeAppDelegate: NSObject, NSApplicationDelegate, NSPopoverDele
     private func revealStatusItem() {
         statusItem.isVisible = true
         updateStatusItemIcon()
-
-        if isStatusItemParkedOrBlocked() {
-            verifyStatusItemVisibility()
-            guard !isStatusItemParkedOrBlocked() else { return }
-        }
-
         showPopover()
     }
 
@@ -200,74 +218,66 @@ final class StayAwakeAppDelegate: NSObject, NSApplicationDelegate, NSPopoverDele
     }
 
     private func verifyStatusItemVisibility() {
-        guard isStatusItemParkedOrBlocked() else { return }
+        logMenuBarVisibilityIfNeeded()
 
-        if !hasAttemptedStatusItemRecovery {
-            hasAttemptedStatusItemRecovery = true
-            recreateStatusItem()
+        guard isStatusItemLikelyHiddenInMenuBar() else { return }
 
-            DispatchQueue.main.async { [weak self] in
-                self?.finishStatusItemVisibilityCheck()
-            }
-            return
-        }
+        recreateStatusItem()
 
-        showMenuBarBlockedAlertIfNeeded()
-    }
-
-    private func finishStatusItemVisibilityCheck() {
-        if isStatusItemParkedOrBlocked() {
-            showMenuBarBlockedAlertIfNeeded()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            self?.logMenuBarVisibilityIfNeeded(force: true)
         }
     }
 
-    private func isStatusItemParkedOrBlocked() -> Bool {
-        guard statusItem.isVisible, let button = statusItem.button else { return true }
+    private func statusItemButtonFrame() -> NSRect? {
+        guard let button = statusItem.button, let window = button.window else { return nil }
+        return window.convertToScreen(button.convert(button.bounds, to: nil))
+    }
 
-        guard let window = button.window else { return true }
+    private func notchGap(on screen: NSScreen) -> NSRect? {
+        guard let leftArea = screen.auxiliaryTopLeftArea,
+              let rightArea = screen.auxiliaryTopRightArea else {
+            return nil
+        }
 
-        if window.screen == nil {
+        let gapMinX = leftArea.maxX
+        let gapMaxX = rightArea.minX
+        guard gapMaxX > gapMinX else { return nil }
+
+        return NSRect(x: gapMinX, y: 0, width: gapMaxX - gapMinX, height: screen.frame.height)
+    }
+
+    private func logMenuBarVisibilityIfNeeded(force: Bool = false) {
+        guard force || !hasLoggedMenuBarVisibility else { return }
+        guard let frame = statusItemButtonFrame() else { return }
+
+        if !force {
+            hasLoggedMenuBarVisibility = true
+        }
+
+        let screen = statusItem.button?.window?.screen ?? NSScreen.main
+        let notch = screen.flatMap { notchGap(on: $0) }
+        let notchRange = notch.map { "\(Int($0.minX))..\(Int($0.maxX))" }
+        let likelyHidden = isStatusItemLikelyHiddenInMenuBar()
+
+        ToggleLogger.logMenuBarVisibility(
+            itemFrame: frame,
+            notchRange: notchRange,
+            visible: !likelyHidden,
+            blocked: likelyHidden
+        )
+    }
+
+    /// On macOS 26+, Control Center hosts the on-screen icon. The app's own status-item
+    /// window is not occluded/positioned like the visible icon, so only treat clearly
+    /// parked windows (below the menu bar) as hidden — never show an alert for this.
+    private func isStatusItemLikelyHiddenInMenuBar() -> Bool {
+        guard statusItem.isVisible, let button = statusItem.button, let window = button.window else {
             return true
         }
 
-        let frame = window.frame
-        if frame.origin.y < 0 {
-            return true
-        }
-
-        if frame.height > 0, frame.height <= 22 {
-            return true
-        }
-
-        return false
-    }
-
-    private func showMenuBarBlockedAlertIfNeeded() {
-        guard !hasShownBlockedAlert else { return }
-        hasShownBlockedAlert = true
-
-        let alert = NSAlert()
-        alert.messageText = "StayAwake menu bar icon is hidden"
-        alert.informativeText = """
-        macOS Control Center is blocking or hiding the StayAwake cup icon.
-
-        Open System Settings → Menu Bar and make sure StayAwake is allowed.
-        If the icon still does not appear, scroll to the bottom of Menu Bar settings and choose "Reset Control Center…".
-        """
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "Open Menu Bar Settings")
-        alert.addButton(withTitle: "OK")
-
-        if alert.runModal() == .alertFirstButtonReturn {
-            openMenuBarSettings()
-        }
-    }
-
-    private func openMenuBarSettings() {
-        guard let url = URL(string: "x-apple.systempreferences:com.apple.ControlCenter-Settings.extension") else {
-            return
-        }
-        NSWorkspace.shared.open(url)
+        let frame = statusItemButtonFrame() ?? window.frame
+        return frame.origin.y < 0
     }
 
     private func updateStatusItemIcon() {

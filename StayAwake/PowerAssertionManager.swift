@@ -30,12 +30,19 @@ final class PowerAssertionManager: ObservableObject {
     private var idleDisplayAssertionID: IOPMAssertionID = 0
     private let clamshellController = ClamshellSleepController()
     private let batteryMonitor = BatteryMonitor()
+    private let lidStateMonitor = LidStateMonitor()
     private var isApplyingLocalChange = false
     private var defaultsObserver: NSObjectProtocol?
     private var syncTimer: Timer?
     private var wakeObserver: NSObjectProtocol?
     private var cancellables = Set<AnyCancellable>()
     private var sleepRequestedForCurrentCutoff = false
+    private var lastSleepRequestTime: Date?
+    private var dialogShownForEpisode = false
+    private var cutoffSuspended = false
+
+    private static let sleepRequestCooldown: TimeInterval = 10
+    private static let snoozeDuration: TimeInterval = 30 * 60
 
     @Published var isLidOpenAwakeEnabled = UserDefaults.standard.bool(forKey: Keys.lidOpenAwake) {
         didSet {
@@ -76,12 +83,22 @@ final class PowerAssertionManager: ObservableObject {
         batteryMonitor.hasInternalBattery
     }
 
+    var isLidClosed: Bool {
+        lidStateMonitor.isLidClosed
+    }
+
     var isBatteryCutoffArmed: Bool {
-        isKeepAwakeEnabled && hasInternalBattery && batterySleepThreshold != .off
+        isBatteryCutoffConfigured && (isLidClosedAwakeEnabled || isLidOpenAwakeEnabled)
     }
 
     var isBatteryCutoffActive: Bool {
-        shouldSuspendForBatteryCutoff
+        cutoffSuspended
+    }
+
+    var isBatteryCutoffSnoozed: Bool {
+        let until = UserDefaults.standard.double(forKey: Keys.batteryCutoffSnoozeUntil)
+        guard until > 0 else { return false }
+        return Date().timeIntervalSince1970 < until
     }
 
     init() {
@@ -90,6 +107,7 @@ final class PowerAssertionManager: ObservableObject {
         ToggleLogger.logStartup(toggle: "Sleep at battery", enabled: batterySleepThreshold != .off)
 
         bindBatteryMonitor()
+        bindLidStateMonitor()
         registerWakeObserver()
         evaluateBatteryCutoff()
         registerDefaultsObserver()
@@ -119,23 +137,40 @@ final class PowerAssertionManager: ObservableObject {
         static let lidOpenAwake = "stayawake.lidOpenAwake"
         static let lidClosedAwake = "stayawake.lidClosedAwake"
         static let batterySleepThreshold = "stayawake.batterySleepThreshold"
+        static let batteryCutoffSnoozeUntil = "stayawake.batteryCutoffSnoozeUntil"
     }
 
-    private var isKeepAwakeEnabled: Bool {
-        isLidOpenAwakeEnabled || isLidClosedAwakeEnabled
+    private var isBatteryCutoffConfigured: Bool {
+        hasInternalBattery && batterySleepThreshold != .off && !isOnAC
     }
 
-    private var shouldSuspendForBatteryCutoff: Bool {
-        guard isKeepAwakeEnabled else { return false }
-        guard hasInternalBattery else { return false }
-        guard batterySleepThreshold != .off else { return false }
-        guard !isOnAC else { return false }
+    private var isBatteryLow: Bool {
+        guard isBatteryCutoffConfigured else { return false }
+        guard !isBatteryCutoffSnoozed else { return false }
         guard let percent = batteryPercent else { return false }
         return percent <= batterySleepThreshold.rawValue
     }
 
+    private var shouldUseSilentCutoff: Bool {
+        isBatteryLow && isLidClosedAwakeEnabled && lidStateMonitor.isLidClosed
+    }
+
+    private var shouldOfferLidOpenCutoff: Bool {
+        isBatteryLow && isLidOpenAwakeEnabled && !lidStateMonitor.isLidClosed
+    }
+
     private func bindBatteryMonitor() {
         batteryMonitor.objectWillChange
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+                self?.evaluateBatteryCutoff()
+            }
+            .store(in: &cancellables)
+    }
+
+    private func bindLidStateMonitor() {
+        lidStateMonitor.objectWillChange
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 self?.objectWillChange.send()
@@ -150,31 +185,92 @@ final class PowerAssertionManager: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.sleepRequestedForCurrentCutoff = false
-            self?.evaluateBatteryCutoff()
+            guard let self else { return }
+            self.lidStateMonitor.refresh()
+            if self.lidStateMonitor.isLidClosed && self.isBatteryLow && self.isLidClosedAwakeEnabled {
+                self.sleepRequestedForCurrentCutoff = false
+            }
+            self.evaluateBatteryCutoff()
         }
     }
 
     private func evaluateBatteryCutoff() {
-        if shouldSuspendForBatteryCutoff {
-            updateLidOpenAssertion()
-            updateLidClosedAssertion()
+        lidStateMonitor.refresh()
 
-            if !sleepRequestedForCurrentCutoff,
-               let percent = batteryPercent {
-                sleepRequestedForCurrentCutoff = true
-                ToggleLogger.logBatteryCutoff(
-                    percent: percent,
-                    threshold: batterySleepThreshold.rawValue
-                )
-                requestSleepNow()
-            }
+        if !isBatteryLow {
+            clearCutoffEpisode()
+            updateAssertions()
             return
         }
 
+        if shouldUseSilentCutoff {
+            cutoffSuspended = true
+            updateAssertions()
+            requestSleepNowIfNeeded()
+            return
+        }
+
+        if shouldOfferLidOpenCutoff {
+            updateAssertions()
+            presentLidOpenCutoffDialogIfNeeded()
+            return
+        }
+
+        updateAssertions()
+    }
+
+    private func presentLidOpenCutoffDialogIfNeeded() {
+        guard !dialogShownForEpisode else { return }
+        guard let percent = batteryPercent else { return }
+
+        dialogShownForEpisode = true
+        let threshold = batterySleepThreshold.rawValue
+
+        BatteryCutoffAlert.present(percent: percent, threshold: threshold) { [weak self] sleepNow in
+            guard let self else { return }
+            if sleepNow {
+                self.cutoffSuspended = true
+                self.updateAssertions()
+                self.requestSleepNowIfNeeded()
+            } else {
+                self.snoozeBatteryCutoff()
+            }
+        }
+    }
+
+    private func snoozeBatteryCutoff() {
+        let until = Date().timeIntervalSince1970 + Self.snoozeDuration
+        UserDefaults.standard.set(until, forKey: Keys.batteryCutoffSnoozeUntil)
+        ToggleLogger.logBatteryCutoffSnoozed(minutes: 30)
+        clearCutoffEpisode()
+        evaluateBatteryCutoff()
+    }
+
+    private func clearCutoffEpisode() {
+        cutoffSuspended = false
         sleepRequestedForCurrentCutoff = false
-        updateLidOpenAssertion()
-        updateLidClosedAssertion()
+        dialogShownForEpisode = false
+    }
+
+    private func requestSleepNowIfNeeded() {
+        if sleepRequestedForCurrentCutoff {
+            return
+        }
+
+        if let lastSleepRequestTime,
+           Date().timeIntervalSince(lastSleepRequestTime) < Self.sleepRequestCooldown {
+            return
+        }
+
+        guard let percent = batteryPercent else { return }
+
+        sleepRequestedForCurrentCutoff = true
+        lastSleepRequestTime = Date()
+        ToggleLogger.logBatteryCutoff(
+            percent: percent,
+            threshold: batterySleepThreshold.rawValue
+        )
+        requestSleepNow()
     }
 
     private func requestSleepNow() {
@@ -187,6 +283,11 @@ final class PowerAssertionManager: ObservableObject {
         } catch {
             print("StayAwake: Failed to request sleep: \(error)")
         }
+    }
+
+    private func updateAssertions() {
+        updateLidOpenAssertion()
+        updateLidClosedAssertion()
     }
 
     private func applyLocalChange(to key: String, value: Bool, name: String, oldValue: Bool) {
@@ -211,13 +312,15 @@ final class PowerAssertionManager: ObservableObject {
         UserDefaults.standard.set(newValue.rawValue, forKey: Keys.batterySleepThreshold)
         isApplyingLocalChange = false
 
-        sleepRequestedForCurrentCutoff = false
+        UserDefaults.standard.removeObject(forKey: Keys.batteryCutoffSnoozeUntil)
+        clearCutoffEpisode()
         evaluateBatteryCutoff()
     }
 
     private func startSyncTimer() {
         syncTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
             self?.syncFromExternalDefaultsIfNeeded()
+            self?.evaluateBatteryCutoff()
         }
         if let syncTimer {
             RunLoop.main.add(syncTimer, forMode: .common)
@@ -286,7 +389,8 @@ final class PowerAssertionManager: ObservableObject {
             isApplyingLocalChange = true
             batterySleepThreshold = storedThreshold
             isApplyingLocalChange = false
-            sleepRequestedForCurrentCutoff = false
+            UserDefaults.standard.removeObject(forKey: Keys.batteryCutoffSnoozeUntil)
+            clearCutoffEpisode()
             didChange = true
         }
 
@@ -296,7 +400,7 @@ final class PowerAssertionManager: ObservableObject {
     }
 
     private func updateLidOpenAssertion() {
-        if isLidOpenAwakeEnabled && !shouldSuspendForBatteryCutoff {
+        if isLidOpenAwakeEnabled && !cutoffSuspended {
             createAssertion(
                 type: kIOPMAssertionTypePreventUserIdleSystemSleep,
                 id: &idleSystemAssertionID,
@@ -314,7 +418,7 @@ final class PowerAssertionManager: ObservableObject {
     }
 
     private func updateLidClosedAssertion() {
-        let shouldEnable = isLidClosedAwakeEnabled && !shouldSuspendForBatteryCutoff
+        let shouldEnable = isLidClosedAwakeEnabled && !cutoffSuspended
         clamshellController.setOverrideEnabled(shouldEnable)
     }
 

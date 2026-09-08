@@ -15,6 +15,16 @@ final class BatteryMonitor: ObservableObject {
 
     private var runLoopSource: CFRunLoopSource?
 
+    private enum Keys {
+        static let type = "Type"
+        static let isPresent = "Is Present"
+        static let currentCapacity = "Current Capacity"
+        static let maxCapacity = "Max Capacity"
+        static let powerSourceState = "Power Source State"
+        static let internalBattery = "InternalBattery"
+        static let acPower = "AC Power"
+    }
+
     init() {
         apply(Self.readSnapshot())
         startMonitoring()
@@ -57,43 +67,126 @@ final class BatteryMonitor: ObservableObject {
     }
 
     private static func readSnapshot() -> BatterySnapshot {
+        if let snapshot = readSnapshotFromIOKit(), snapshot.hasInternalBattery {
+            return snapshot
+        }
+        return readSnapshotFromPmset()
+    }
+
+    private static func readSnapshotFromIOKit() -> BatterySnapshot? {
         guard let info = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
-              let sources = IOPSCopyPowerSourcesList(info)?.takeRetainedValue() as? [String] else {
-            return BatterySnapshot(isOnAC: true, batteryPercent: nil, hasInternalBattery: false)
+              let sourceList = IOPSCopyPowerSourcesList(info)?.takeRetainedValue() else {
+            return nil
         }
 
         var foundInternalBattery = false
         var onAC = true
         var percent: Int?
 
-        for source in sources {
-            guard let description = IOPSGetPowerSourceDescription(info, source as CFString)?.takeUnretainedValue() as? [String: Any] else {
+        let count = CFArrayGetCount(sourceList)
+        for index in 0..<count {
+            let value = CFArrayGetValueAtIndex(sourceList, index)
+            let item = Unmanaged<CFTypeRef>.fromOpaque(value!).takeUnretainedValue()
+
+            let description: [String: Any]?
+            if let sourceID = item as? String {
+                description = IOPSGetPowerSourceDescription(info, sourceID as CFString)?
+                    .takeUnretainedValue() as? [String: Any]
+            } else {
+                description = item as? [String: Any]
+            }
+
+            guard let description,
+                  parsePresent(description),
+                  parseType(description) == Keys.internalBattery else {
                 continue
             }
 
-            let type = description[kIOPSTypeKey] as? String
-            let isPresent = description[kIOPSIsPresentKey] as? Bool ?? false
-            guard isPresent else { continue }
-
-            if type == kIOPSInternalBatteryType {
-                foundInternalBattery = true
-
-                if let current = description[kIOPSCurrentCapacityKey] as? Int,
-                   let maxCapacity = description[kIOPSMaxCapacityKey] as? Int,
-                   maxCapacity > 0 {
-                    percent = min(100, Swift.max(0, (current * 100) / maxCapacity))
-                }
-
-                if let powerSource = description[kIOPSPowerSourceStateKey] as? String {
-                    onAC = powerSource == kIOPSACPowerValue
-                }
-            }
+            foundInternalBattery = true
+            percent = parsePercent(description) ?? percent
+            onAC = parseOnAC(description)
         }
 
-        if !foundInternalBattery {
-            return BatterySnapshot(isOnAC: true, batteryPercent: nil, hasInternalBattery: false)
+        guard foundInternalBattery else {
+            return nil
         }
 
         return BatterySnapshot(isOnAC: onAC, batteryPercent: percent, hasInternalBattery: true)
+    }
+
+    private static func readSnapshotFromPmset() -> BatterySnapshot {
+        guard let output = runPmsetBatteryOutput() else {
+            return BatterySnapshot(isOnAC: true, batteryPercent: nil, hasInternalBattery: false)
+        }
+
+        let hasInternalBattery = output.contains("InternalBattery")
+        guard hasInternalBattery else {
+            return BatterySnapshot(isOnAC: true, batteryPercent: nil, hasInternalBattery: false)
+        }
+
+        let isOnAC = output.contains("AC Power")
+        let percent = parsePercentFromPmset(output)
+
+        return BatterySnapshot(isOnAC: isOnAC, batteryPercent: percent, hasInternalBattery: true)
+    }
+
+    private static func runPmsetBatteryOutput() -> String? {
+        let process = Process()
+        let pipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/pmset")
+        process.arguments = ["-g", "batt"]
+        process.standardOutput = pipe
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            return nil
+        }
+
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        return String(data: data, encoding: .utf8)
+    }
+
+    private static func parsePresent(_ description: [String: Any]) -> Bool {
+        if let isPresent = description[Keys.isPresent] as? Bool {
+            return isPresent
+        }
+        if let isPresent = description[Keys.isPresent] as? Int {
+            return isPresent != 0
+        }
+        return false
+    }
+
+    private static func parseType(_ description: [String: Any]) -> String? {
+        description[Keys.type] as? String
+    }
+
+    private static func parsePercent(_ description: [String: Any]) -> Int? {
+        if let current = description[Keys.currentCapacity] as? Int {
+            if let maxCapacity = description[Keys.maxCapacity] as? Int, maxCapacity > 0, maxCapacity <= 100 {
+                return min(100, Swift.max(0, current))
+            }
+            if let maxCapacity = description[Keys.maxCapacity] as? Int, maxCapacity > 100 {
+                return min(100, Swift.max(0, (current * 100) / maxCapacity))
+            }
+            return min(100, Swift.max(0, current))
+        }
+        return nil
+    }
+
+    private static func parseOnAC(_ description: [String: Any]) -> Bool {
+        guard let powerSource = description[Keys.powerSourceState] as? String else {
+            return false
+        }
+        return powerSource == Keys.acPower
+    }
+
+    private static func parsePercentFromPmset(_ output: String) -> Int? {
+        guard let percentRange = output.range(of: #"\d+%"#, options: .regularExpression) else {
+            return nil
+        }
+        let token = output[percentRange].dropLast()
+        return Int(token)
     }
 }

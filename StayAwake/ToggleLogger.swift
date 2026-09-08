@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 enum ToggleLogSource: String {
@@ -31,6 +32,23 @@ enum ToggleLogger {
 
     static func logBatteryCutoff(percent: Int, threshold: Int) {
         write("\(timestamp()) [battery] battery cutoff: \(percent)% <= \(threshold)% → sleep")
+    }
+
+    static func logBatteryCutoffSnoozed(minutes: Int) {
+        write("\(timestamp()) [battery] battery cutoff snoozed for \(minutes) minutes")
+    }
+
+    static func logMenuBarVisibility(
+        itemFrame: NSRect,
+        notchRange: String?,
+        visible: Bool,
+        blocked: Bool
+    ) {
+        let notch = notchRange ?? "none"
+        write(
+            "\(timestamp()) [menubar] item x=\(Int(itemFrame.minX))..\(Int(itemFrame.maxX)), " +
+            "notch=\(notch), visible=\(visible), blocked=\(blocked)"
+        )
     }
 
     private static func timestamp() -> String {

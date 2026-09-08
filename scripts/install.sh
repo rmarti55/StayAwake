@@ -40,6 +40,13 @@ sleep 1
 echo "Installing to $INSTALL_APP..."
 cp -R "$BUILD_APP" /Applications/
 
+echo "Pinning menu bar icon to priority slot (far right)..."
+defaults write com.apple.controlcenter "NSStatusItem Preferred Position StayAwakeStatusItem" -int 0 2>/dev/null || true
+defaults write com.apple.controlcenter "NSStatusItem Visible StayAwakeStatusItem" -bool true 2>/dev/null || true
+defaults write com.stayawake.app "NSStatusItem Preferred Position StayAwakeStatusItem" -int 0 2>/dev/null || true
+killall ControlCenter 2>/dev/null || true
+sleep 1
+
 echo "Refreshing Launch Services icon cache..."
 /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$INSTALL_APP"
 touch "$INSTALL_APP"
