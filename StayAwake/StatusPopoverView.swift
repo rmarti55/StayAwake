@@ -113,7 +113,9 @@ struct StatusPopoverView: View {
     }
 
     private var batteryCutoffSection: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        let keepAwakeEnabled = powerManager.isKeepAwakeEnabledForUI
+
+        return VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text("Sleep at battery")
                     .font(.body)
@@ -127,8 +129,13 @@ struct StatusPopoverView: View {
                 .pickerStyle(.menu)
                 .frame(maxWidth: 72)
             }
+            .disabled(!keepAwakeEnabled)
 
-            if powerManager.isKeepAwakeEnabledForUI && powerManager.hasInternalBattery {
+            if !keepAwakeEnabled {
+                Text("Turn on a keep-awake toggle to use this")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else if powerManager.hasInternalBattery {
                 batteryStatusCaption
             }
         }
