@@ -29,6 +29,10 @@ enum ToggleLogger {
         write("\(timestamp()) [init] \(name): enabled=\(enabled)")
     }
 
+    static func logBatteryCutoff(percent: Int, threshold: Int) {
+        write("\(timestamp()) [battery] battery cutoff: \(percent)% <= \(threshold)% → sleep")
+    }
+
     private static func timestamp() -> String {
         formatter.string(from: Date())
     }

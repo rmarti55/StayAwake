@@ -98,6 +98,8 @@ struct StatusPopoverView: View {
                 }
             }
 
+            batteryCutoffSection
+
             Toggle("Start at Login", isOn: Binding(
                 get: { launchAtLogin.isEnabled },
                 set: { launchAtLogin.setEnabled($0) }
@@ -108,6 +110,56 @@ struct StatusPopoverView: View {
             }
             .keyboardShortcut("q")
         }
+    }
+
+    private var batteryCutoffSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("Sleep at battery")
+                    .font(.body)
+                Spacer()
+                Picker("Sleep at battery", selection: $powerManager.batterySleepThreshold) {
+                    ForEach(BatterySleepThreshold.allCases) { threshold in
+                        Text(threshold.label).tag(threshold)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .frame(maxWidth: 72)
+            }
+
+            if powerManager.isKeepAwakeEnabledForUI && powerManager.hasInternalBattery {
+                batteryStatusCaption
+            }
+        }
+    }
+
+    private var batteryStatusCaption: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            if let percent = powerManager.batteryPercent {
+                Text("Battery \(percent)%\(powerManager.isOnAC ? " · AC power" : "")")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            if powerManager.isBatteryCutoffArmed {
+                Text("Sleeping at \(powerManager.batterySleepThreshold.label)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            if powerManager.isBatteryCutoffActive {
+                Text("Battery cutoff active — keep-awake suspended")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
+        }
+    }
+}
+
+private extension PowerAssertionManager {
+    var isKeepAwakeEnabledForUI: Bool {
+        isLidOpenAwakeEnabled || isLidClosedAwakeEnabled
     }
 }
 

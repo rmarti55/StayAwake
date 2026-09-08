@@ -23,6 +23,7 @@ flowchart TB
     Delegate --> PowerMgr[PowerAssertionManager]
     PowerMgr --> IOKit[IOKit assertions - lid open]
     PowerMgr --> Clamshell[ClamshellSleepController - lid closed]
+    PowerMgr --> BatteryMon[BatteryMonitor - IOPS]
   end
   subgraph login [Login]
     Delegate --> LaunchLogin[LaunchAtLogin via SMAppService]
@@ -41,7 +42,8 @@ flowchart TB
 | [`DurationFormatter.swift`](../StayAwake/DurationFormatter.swift) | Human-readable duration strings (`2d 4h 12m`) |
 | [`DuplicateLaunchHandler.swift`](../StayAwake/DuplicateLaunchHandler.swift) | Second launch → post reveal notification, activate running instance, exit |
 | [`AppInstanceLock.swift`](../StayAwake/AppInstanceLock.swift) | `flock` single-instance lock in `~/Library/Caches/StayAwake/stayawake.lock` |
-| [`PowerAssertionManager.swift`](../StayAwake/PowerAssertionManager.swift) | Coordinates lid-open IOKit assertions and lid-closed clamshell controller |
+| [`PowerAssertionManager.swift`](../StayAwake/PowerAssertionManager.swift) | Coordinates lid-open IOKit assertions, lid-closed clamshell controller, and battery cutoff policy |
+| [`BatteryMonitor.swift`](../StayAwake/BatteryMonitor.swift) | IOKit Power Sources: AC vs battery, remaining percent, change notifications |
 | [`ClamshellSleepController.swift`](../StayAwake/ClamshellSleepController.swift) | Kernel clamshell override via `AppleClamshellCausesSleep` |
 | [`LaunchAtLogin.swift`](../StayAwake/LaunchAtLogin.swift) | `SMAppService.mainApp` register/unregister |
 | [`ToggleLogger.swift`](../StayAwake/ToggleLogger.swift) | Append-only log at `~/Library/Logs/StayAwake.log` |
@@ -92,7 +94,7 @@ Icon: SF Symbol `cup.and.saucer` (outline) or `cup.and.saucer.fill` (when either
 1. **Up since reboot** — wall clock since `kern.boottime` (sleep does not reset)
 2. **Awake since sleep** — wall clock since last full `Wake` event (or boot if none)
 3. **Last 24 hours** — horizontal bar of awake vs asleep segments
-4. Keep Awake toggles, Start at Login, Quit
+4. Keep Awake toggles, **Sleep at battery** cutoff, Start at Login, Quit
 
 ## Uptime and sleep tracking
 
@@ -142,6 +144,19 @@ On disable/quit, restores clamshell sleep unless "official clamshell mode" is ac
 - Most reliable on **AC power**; battery may still sleep
 - Runs the machine hot with lid closed — intentional tradeoff
 
+### Battery sleep cutoff
+
+When **Sleep at battery** is set (5%, 10%, or 20%) and either keep-awake toggle is on:
+
+1. `BatteryMonitor` reads the internal battery via IOKit Power Sources (`IOPS*` APIs) and listens for power-source changes.
+2. On **AC power** or desktops without an internal battery, cutoff never fires.
+3. On battery, when remaining percent drops to or below the threshold:
+   - Keep-awake is **suspended** (assertions released, clamshell override disabled) without changing the user's toggles.
+   - `pmset sleepnow` requests sleep once per cutoff episode.
+4. After wake or plug-in, keep-awake resumes only when on AC **or** remaining percent is above the threshold. Waking still at/below the floor on battery triggers sleep again.
+
+UserDefaults key: `stayawake.batterySleepThreshold` (`0` = off, else `5` / `10` / `20`).
+
 ## Persistence
 
 UserDefaults keys (domain `com.stayawake.app`):
@@ -150,6 +165,7 @@ UserDefaults keys (domain `com.stayawake.app`):
 |---|---|
 | `stayawake.lidOpenAwake` | Keep Awake (Lid Open) |
 | `stayawake.lidClosedAwake` | Keep Awake (Lid Closed) |
+| `stayawake.batterySleepThreshold` | Sleep at battery floor (`0`, `5`, `10`, or `20`) |
 
 `PowerAssertionManager` syncs from UserDefaults every 2 seconds and on `UserDefaults.didChangeNotification` so external changes (e.g. `defaults write`) are picked up.
 
@@ -163,9 +179,10 @@ Start at Login state comes from `SMAppService.mainApp.status`, not UserDefaults.
 2026-09-03T22:15:00.123Z [user] Keep Awake (Lid Open): false -> true
 2026-09-03T22:15:00.456Z [init] Keep Awake (Lid Closed): enabled=false
 2026-09-03T22:16:00.789Z [external] Start at Login: false -> true
+2026-09-03T23:00:00.000Z [battery] battery cutoff: 9% <= 10% → sleep
 ```
 
-Sources: `user`, `init`, `external`.
+Sources: `user`, `init`, `external`, `battery`.
 
 ## Build and install
 
