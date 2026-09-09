@@ -21,7 +21,9 @@ final class LidStateMonitor: ObservableObject {
     }
 
     func refresh() {
-        isLidClosed = Self.readLidClosed()
+        let closed = Self.readLidClosed()
+        guard closed != isLidClosed else { return }
+        isLidClosed = closed
     }
 
     private func registerObservers() {

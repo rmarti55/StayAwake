@@ -10,10 +10,18 @@ final class ClamshellSleepController {
     private var idleSystemAssertionID: IOPMAssertionID = 0
     private var heartbeatTimer: Timer?
     private var wakeObserver: NSObjectProtocol?
+    private var desiredEnabled = false
+    private var isOnAC = false
+
+    private static let heartbeatInterval: TimeInterval = 10
 
     var isOverrideActive = false
 
-    func setOverrideEnabled(_ enabled: Bool) {
+    func setOverrideEnabled(_ enabled: Bool, isOnAC: Bool) {
+        self.isOnAC = isOnAC
+        guard enabled != desiredEnabled else { return }
+        desiredEnabled = enabled
+
         if enabled {
             applyOverride()
             startHeartbeat()
@@ -28,7 +36,7 @@ final class ClamshellSleepController {
     }
 
     func cleanupOnQuit() {
-        setOverrideEnabled(false)
+        setOverrideEnabled(false, isOnAC: isOnAC)
     }
 
     static func clamshellCausesSleep() -> Bool? {
@@ -118,7 +126,7 @@ final class ClamshellSleepController {
         let result = IOPMAssertionRelease(assertionID)
 
         if result != kIOReturnSuccess {
-            print("StayAwake: Failed to release idle assertion (lid closed): \(result)")
+            print("StayAwake: Failed to release idle assertion: \(result)")
         }
     }
 
@@ -134,7 +142,7 @@ final class ClamshellSleepController {
     }
 
     private func isOfficialClamshellModeActive() -> Bool {
-        hasExternalDisplay() && isOnACPower()
+        hasExternalDisplay() && isOnAC
     }
 
     private func hasExternalDisplay() -> Bool {
@@ -151,32 +159,14 @@ final class ClamshellSleepController {
         return displays.contains { CGDisplayIsBuiltin($0) == 0 }
     }
 
-    private func isOnACPower() -> Bool {
-        let process = Process()
-        let pipe = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/pmset")
-        process.arguments = ["-g", "batt"]
-        process.standardOutput = pipe
-
-        do {
-            try process.run()
-            process.waitUntilExit()
-        } catch {
-            return false
-        }
-
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        guard let output = String(data: data, encoding: .utf8) else {
-            return false
-        }
-
-        return output.contains("AC Power")
-    }
-
     private func startHeartbeat() {
-        stopHeartbeat()
-        heartbeatTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            self?.applyOverride()
+        guard heartbeatTimer == nil else { return }
+
+        heartbeatTimer = Timer.scheduledTimer(withTimeInterval: Self.heartbeatInterval, repeats: true) { [weak self] _ in
+            guard let self, self.desiredEnabled else { return }
+            if Self.clamshellCausesSleep() != false {
+                self.applyOverride()
+            }
         }
         if let heartbeatTimer {
             RunLoop.main.add(heartbeatTimer, forMode: .common)
@@ -208,6 +198,6 @@ final class ClamshellSleepController {
     }
 
     deinit {
-        setOverrideEnabled(false)
+        setOverrideEnabled(false, isOnAC: isOnAC)
     }
 }

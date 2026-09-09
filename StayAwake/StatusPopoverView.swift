@@ -29,7 +29,19 @@ struct StatusPopoverView: View {
                 value: DurationFormatter.format(sessionStore.awakeSinceSleep),
                 detail: "Resets when the Mac sleeps"
             )
+            statRow(
+                title: "Heat",
+                value: powerManager.thermalStateLabel,
+                detail: heatDetail
+            )
         }
+    }
+
+    private var heatDetail: String {
+        if let celsius = powerManager.virtualTemperatureCelsius {
+            return String(format: "About %.0f°C", celsius)
+        }
+        return "macOS thermal pressure"
     }
 
     private func statRow(title: String, value: String, detail: String) -> some View {
@@ -82,6 +94,18 @@ struct StatusPopoverView: View {
 
     private var controlsSection: some View {
         VStack(alignment: .leading, spacing: 10) {
+            Toggle("Sleep when too hot", isOn: $powerManager.isThermalSleepEnabled)
+
+            Text("Sleeps the Mac if heat is serious. You’ll see why after you wake it.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            if powerManager.isThermalCutoffActive {
+                Text("Heat cutoff active — keep-awake suspended")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
+
             Toggle("Keep Awake (Lid Open)", isOn: $powerManager.isLidOpenAwakeEnabled)
 
             if powerManager.isLidOpenAwakeEnabled {

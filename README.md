@@ -31,7 +31,8 @@ Requirements: Xcode command-line tools (`xcodebuild`, `iconutil`).
 | **Up since reboot** | Time since last boot (`kern.boottime`). Sleep does **not** reset this. |
 | **Awake since sleep** | Time since the last full wake. Sleep **does** reset this. |
 | **Last 24 hours** | A bar of awake (accent) vs asleep (gray) stretches over the past day |
-| **Keep Awake toggles** | Same lid-open / lid-closed controls as before |
+| **Heat** | macOS thermal pressure (Nominal / Fair / Serious / Critical) and approximate temperature |
+| **Keep Awake toggles** | Lid-open / lid-closed controls, plus **Sleep when too hot** |
 | **Start at Login** | Registers StayAwake to launch at login via `SMAppService` |
 | **Quit** | Releases power assertions and exits |
 

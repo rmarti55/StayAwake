@@ -78,6 +78,22 @@ Verify in System Settings → General → Login Items.
 
 ---
 
+### StayAwake using a full CPU core / Mac running hot
+
+**Cause (old builds):** Keep Awake (Lid Closed) re-applied the kernel override on every battery update, which retriggered the battery listener. That loop could pin ~99% CPU for hours.
+
+**Fix (current build):** Reinstall with `./scripts/install.sh`. CPU should sit near 0% when idle. Check `ps -o pcpu -p $(pgrep StayAwake)`.
+
+---
+
+### Mac slept and then said it got too hot
+
+**Cause:** **Sleep when too hot** is on (default). StayAwake slept the machine when macOS reported Serious or Critical heat — including the backpack-with-lid-open case.
+
+**Fix:** That is intended. Turn the toggle off in the popover only if you want to allow the Mac to stay awake while overheating.
+
+---
+
 ### Keep Awake (Lid Closed) enabled but Mac still sleeps
 
 **Cause:** macOS may ignore clamshell override on battery, or sleep for other reasons (low battery, manual sleep, official clamshell mode with external display).

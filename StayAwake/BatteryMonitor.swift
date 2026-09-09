@@ -39,6 +39,14 @@ final class BatteryMonitor: ObservableObject {
     }
 
     private func apply(_ snapshot: BatterySnapshot) {
+        guard snapshot != BatterySnapshot(
+            isOnAC: isOnAC,
+            batteryPercent: batteryPercent,
+            hasInternalBattery: hasInternalBattery
+        ) else {
+            return
+        }
+
         isOnAC = snapshot.isOnAC
         batteryPercent = snapshot.batteryPercent
         hasInternalBattery = snapshot.hasInternalBattery

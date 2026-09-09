@@ -38,6 +38,14 @@ enum ToggleLogger {
         write("\(timestamp()) [battery] battery cutoff snoozed for \(minutes) minutes")
     }
 
+    static func logThermalCutoff(state: String) {
+        write("\(timestamp()) [thermal] thermal cutoff: \(state) → sleep")
+    }
+
+    static func logThermalAlertShown() {
+        write("\(timestamp()) [thermal] showed after-wake heat alert")
+    }
+
     static func logMenuBarVisibility(
         itemFrame: NSRect,
         notchRange: String?,

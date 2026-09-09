@@ -24,6 +24,7 @@ flowchart TB
     PowerMgr --> IOKit[IOKit assertions - lid open]
     PowerMgr --> Clamshell[ClamshellSleepController - lid closed]
     PowerMgr --> BatteryMon[BatteryMonitor - IOPS]
+    PowerMgr --> ThermalMon[ThermalMonitor - thermalState]
   end
   subgraph login [Login]
     Delegate --> LaunchLogin[LaunchAtLogin via SMAppService]
@@ -42,10 +43,12 @@ flowchart TB
 | [`DurationFormatter.swift`](../StayAwake/DurationFormatter.swift) | Human-readable duration strings (`2d 4h 12m`) |
 | [`DuplicateLaunchHandler.swift`](../StayAwake/DuplicateLaunchHandler.swift) | Second launch → post reveal notification, activate running instance, exit |
 | [`AppInstanceLock.swift`](../StayAwake/AppInstanceLock.swift) | `flock` single-instance lock in `~/Library/Caches/StayAwake/stayawake.lock` |
-| [`PowerAssertionManager.swift`](../StayAwake/PowerAssertionManager.swift) | Coordinates lid-open IOKit assertions, lid-closed clamshell controller, and battery cutoff policy |
-| [`BatteryMonitor.swift`](../StayAwake/BatteryMonitor.swift) | IOKit Power Sources: AC vs battery, remaining percent, change notifications |
-| [`LidStateMonitor.swift`](../StayAwake/LidStateMonitor.swift) | Lid open/closed via IOKit clamshell state and built-in display detection |
+| [`PowerAssertionManager.swift`](../StayAwake/PowerAssertionManager.swift) | Coordinates lid-open IOKit assertions, lid-closed clamshell controller, battery cutoff, and thermal cutoff |
+| [`BatteryMonitor.swift`](../StayAwake/BatteryMonitor.swift) | IOKit Power Sources: AC vs battery, remaining percent, change notifications (publish only on real change) |
+| [`LidStateMonitor.swift`](../StayAwake/LidStateMonitor.swift) | Lid open/closed via IOKit clamshell state and built-in display detection (publish only on real change) |
+| [`ThermalMonitor.swift`](../StayAwake/ThermalMonitor.swift) | `ProcessInfo.thermalState` plus battery VirtualTemperature for the popover |
 | [`BatteryCutoffAlert.swift`](../StayAwake/BatteryCutoffAlert.swift) | Low-battery warning dialog (Sleep Now / Keep Going) for lid-open cutoff |
+| [`ThermalSleepAlert.swift`](../StayAwake/ThermalSleepAlert.swift) | After-wake dialog explaining the Mac slept because it got too hot |
 | [`ClamshellSleepController.swift`](../StayAwake/ClamshellSleepController.swift) | Kernel clamshell override via `AppleClamshellCausesSleep` |
 | [`LaunchAtLogin.swift`](../StayAwake/LaunchAtLogin.swift) | `SMAppService.mainApp` register/unregister |
 | [`ToggleLogger.swift`](../StayAwake/ToggleLogger.swift) | Append-only log at `~/Library/Logs/StayAwake.log` |
@@ -98,7 +101,8 @@ Icon: SF Symbol `cup.and.saucer` (outline) or `cup.and.saucer.fill` (when either
 1. **Up since reboot** — wall clock since `kern.boottime` (sleep does not reset)
 2. **Awake since sleep** — wall clock since last full `Wake` event (or boot if none)
 3. **Last 24 hours** — horizontal bar of awake vs asleep segments
-4. Keep Awake toggles, **Sleep at battery** cutoff, Start at Login, Quit
+4. Heat (Nominal / Fair / Serious / Critical) and approximate temperature
+5. Keep Awake toggles, **Sleep when too hot**, **Sleep at battery** cutoff, Start at Login, Quit
 
 ## Uptime and sleep tracking
 
@@ -139,8 +143,9 @@ When **Keep Awake (Lid Closed)** is enabled, `ClamshellSleepController`:
 
 1. Calls `IOConnectCallScalarMethod` with selector `kPMSetClamshellSleepState` (12) to set `AppleClamshellCausesSleep = No`
 2. Creates an idle system sleep assertion
-3. Runs a 1-second heartbeat timer to re-apply the override
+3. Runs a 10-second heartbeat that re-applies only if macOS flipped `AppleClamshellCausesSleep` back to Yes
 4. Re-applies on wake from sleep (`NSWorkspace.didWakeNotification`)
+5. `setOverrideEnabled` is idempotent — already-on / already-off is a no-op (avoids a main-thread IOKit storm)
 
 On disable/quit, restores clamshell sleep unless "official clamshell mode" is active (external display + AC power).
 
@@ -165,6 +170,19 @@ On disable/quit, restores clamshell sleep unless "official clamshell mode" is ac
 
 UserDefaults keys: `stayawake.batterySleepThreshold` (`0` = off), `stayawake.batteryCutoffSnoozeUntil` (Unix timestamp).
 
+### Thermal sleep cutoff
+
+`ThermalMonitor` reads `ProcessInfo.thermalState` (notification + 15s poll) and optional `AppleSmartBattery` temps. When **Sleep when too hot** is on (default) and state is **Serious** or **Critical**:
+
+1. Suspend keep-awake
+2. Persist `stayawake.thermalSleepReason`
+3. Silent `pmset sleepnow` (10s debounce) — no dialog in a backpack
+4. On wake (or next launch), show “Your computer was put to sleep because it got too hot.”
+
+Fair and Nominal never sleep. Fan RPM is not used (no public API).
+
+Monitors must only publish when values actually change. Evaluating cutoff on every IOPS tick + re-applying clamshell override previously pinned StayAwake at ~99% CPU.
+
 ## Persistence
 
 UserDefaults keys (domain `com.stayawake.app`):
@@ -175,8 +193,11 @@ UserDefaults keys (domain `com.stayawake.app`):
 | `stayawake.lidClosedAwake` | Keep Awake (Lid Closed) |
 | `stayawake.batterySleepThreshold` | Sleep at battery floor (`0`, `5`, `10`, or `20`) |
 | `stayawake.batteryCutoffSnoozeUntil` | Unix timestamp — lid-open cutoff snoozed until this time |
+| `stayawake.thermalSleepEnabled` | Sleep when too hot (`true` when unset) |
+| `stayawake.thermalSleepReason` | Pending after-wake heat alert (`serious` / `critical`) |
+| `stayawake.thermalSleepAt` | Unix timestamp of last thermal sleep |
 
-`PowerAssertionManager` syncs from UserDefaults every 2 seconds and on `UserDefaults.didChangeNotification` so external changes (e.g. `defaults write`) are picked up.
+`PowerAssertionManager` syncs from UserDefaults every 2 seconds and on `UserDefaults.didChangeNotification` so external changes (e.g. `defaults write`) are picked up. The sync timer does **not** re-evaluate cutoff unless a stored value actually changed.
 
 Start at Login state comes from `SMAppService.mainApp.status`, not UserDefaults.
 
@@ -190,9 +211,10 @@ Start at Login state comes from `SMAppService.mainApp.status`, not UserDefaults.
 2026-09-03T22:16:00.789Z [external] Start at Login: false -> true
 2026-09-03T23:00:00.000Z [battery] battery cutoff: 9% <= 10% → sleep
 2026-09-03T23:01:00.000Z [menubar] item x=1536..1568, notch=771..956, visible=true, blocked=false
+2026-09-08T18:30:00.000Z [thermal] thermal cutoff: Serious → sleep
 ```
 
-Sources: `user`, `init`, `external`, `battery`, `menubar`.
+Sources: `user`, `init`, `external`, `battery`, `thermal`, `menubar`.
 
 ## Build and install
 

@@ -36,6 +36,7 @@ final class StayAwakeAppDelegate: NSObject, NSApplicationDelegate, NSPopoverDele
 
         DispatchQueue.main.async { [weak self] in
             self?.verifyStatusItemVisibility()
+            self?.powerManager.presentPendingThermalAlertIfNeeded()
         }
     }
 

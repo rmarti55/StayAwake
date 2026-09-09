@@ -3,7 +3,7 @@ import Combine
 import Foundation
 
 struct TimelineSegment: Identifiable, Equatable {
-    let id = UUID()
+    var id: String { "\(start.timeIntervalSince1970)-\(isAwake)" }
     let start: Date
     let end: Date
     let isAwake: Bool

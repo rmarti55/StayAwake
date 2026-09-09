@@ -31,15 +31,18 @@ final class PowerAssertionManager: ObservableObject {
     private let clamshellController = ClamshellSleepController()
     private let batteryMonitor = BatteryMonitor()
     private let lidStateMonitor = LidStateMonitor()
+    private let thermalMonitor = ThermalMonitor()
     private var isApplyingLocalChange = false
     private var defaultsObserver: NSObjectProtocol?
     private var syncTimer: Timer?
     private var wakeObserver: NSObjectProtocol?
     private var cancellables = Set<AnyCancellable>()
     private var sleepRequestedForCurrentCutoff = false
+    private var thermalSleepRequestedForEpisode = false
     private var lastSleepRequestTime: Date?
     private var dialogShownForEpisode = false
-    private var cutoffSuspended = false
+    private var batteryCutoffSuspended = false
+    private var thermalCutoffSuspended = false
 
     private static let sleepRequestCooldown: TimeInterval = 10
     private static let snoozeDuration: TimeInterval = 30 * 60
@@ -67,6 +70,13 @@ final class PowerAssertionManager: ObservableObject {
         }
     }
 
+    @Published var isThermalSleepEnabled = UserDefaults.standard.object(forKey: Keys.thermalSleepEnabled) as? Bool ?? true {
+        didSet {
+            guard !isApplyingLocalChange else { return }
+            applyThermalSleepChange(from: oldValue, to: isThermalSleepEnabled)
+        }
+    }
+
     var isClamshellOverrideActive: Bool {
         clamshellController.isOverrideActive
     }
@@ -87,12 +97,24 @@ final class PowerAssertionManager: ObservableObject {
         lidStateMonitor.isLidClosed
     }
 
+    var thermalStateLabel: String {
+        thermalMonitor.stateLabel
+    }
+
+    var virtualTemperatureCelsius: Double? {
+        thermalMonitor.virtualTemperatureCelsius
+    }
+
     var isBatteryCutoffArmed: Bool {
         isBatteryCutoffConfigured && (isLidClosedAwakeEnabled || isLidOpenAwakeEnabled)
     }
 
     var isBatteryCutoffActive: Bool {
-        cutoffSuspended
+        batteryCutoffSuspended
+    }
+
+    var isThermalCutoffActive: Bool {
+        thermalCutoffSuspended
     }
 
     var isBatteryCutoffSnoozed: Bool {
@@ -105,11 +127,13 @@ final class PowerAssertionManager: ObservableObject {
         ToggleLogger.logStartup(toggle: "Keep Awake (Lid Open)", enabled: isLidOpenAwakeEnabled)
         ToggleLogger.logStartup(toggle: "Keep Awake (Lid Closed)", enabled: isLidClosedAwakeEnabled)
         ToggleLogger.logStartup(toggle: "Sleep at battery", enabled: batterySleepThreshold != .off)
+        ToggleLogger.logStartup(toggle: "Sleep when too hot", enabled: isThermalSleepEnabled)
 
         bindBatteryMonitor()
         bindLidStateMonitor()
+        bindThermalMonitor()
         registerWakeObserver()
-        evaluateBatteryCutoff()
+        evaluateCutoffs()
         registerDefaultsObserver()
         startSyncTimer()
     }
@@ -133,11 +157,27 @@ final class PowerAssertionManager: ObservableObject {
         releaseAssertion(id: &idleDisplayAssertionID)
     }
 
+    func presentPendingThermalAlertIfNeeded() {
+        guard UserDefaults.standard.object(forKey: Keys.thermalSleepReason) != nil else { return }
+
+        UserDefaults.standard.removeObject(forKey: Keys.thermalSleepReason)
+        UserDefaults.standard.removeObject(forKey: Keys.thermalSleepAt)
+        ToggleLogger.logThermalAlertShown()
+        ThermalSleepAlert.present()
+    }
+
     private enum Keys {
         static let lidOpenAwake = "stayawake.lidOpenAwake"
         static let lidClosedAwake = "stayawake.lidClosedAwake"
         static let batterySleepThreshold = "stayawake.batterySleepThreshold"
         static let batteryCutoffSnoozeUntil = "stayawake.batteryCutoffSnoozeUntil"
+        static let thermalSleepEnabled = "stayawake.thermalSleepEnabled"
+        static let thermalSleepReason = "stayawake.thermalSleepReason"
+        static let thermalSleepAt = "stayawake.thermalSleepAt"
+    }
+
+    private var cutoffSuspended: Bool {
+        batteryCutoffSuspended || thermalCutoffSuspended
     }
 
     private var isBatteryCutoffConfigured: Bool {
@@ -159,12 +199,19 @@ final class PowerAssertionManager: ObservableObject {
         isBatteryLow && isLidOpenAwakeEnabled && !lidStateMonitor.isLidClosed
     }
 
+    private static func readThermalSleepEnabled() -> Bool {
+        guard UserDefaults.standard.object(forKey: Keys.thermalSleepEnabled) != nil else {
+            return true
+        }
+        return UserDefaults.standard.bool(forKey: Keys.thermalSleepEnabled)
+    }
+
     private func bindBatteryMonitor() {
         batteryMonitor.objectWillChange
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 self?.objectWillChange.send()
-                self?.evaluateBatteryCutoff()
+                self?.evaluateCutoffs()
             }
             .store(in: &cancellables)
     }
@@ -174,7 +221,17 @@ final class PowerAssertionManager: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 self?.objectWillChange.send()
-                self?.evaluateBatteryCutoff()
+                self?.evaluateCutoffs()
+            }
+            .store(in: &cancellables)
+    }
+
+    private func bindThermalMonitor() {
+        thermalMonitor.objectWillChange
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+                self?.evaluateCutoffs()
             }
             .store(in: &cancellables)
     }
@@ -190,33 +247,42 @@ final class PowerAssertionManager: ObservableObject {
             if self.lidStateMonitor.isLidClosed && self.isBatteryLow && self.isLidClosedAwakeEnabled {
                 self.sleepRequestedForCurrentCutoff = false
             }
-            self.evaluateBatteryCutoff()
+            self.thermalSleepRequestedForEpisode = false
+            self.presentPendingThermalAlertIfNeeded()
+            self.evaluateCutoffs()
         }
     }
 
-    private func evaluateBatteryCutoff() {
-        lidStateMonitor.refresh()
+    private func evaluateCutoffs() {
+        let thermalHot = isThermalSleepEnabled && thermalMonitor.isOverheating
+        if thermalHot {
+            thermalCutoffSuspended = true
+        } else {
+            thermalCutoffSuspended = false
+            thermalSleepRequestedForEpisode = false
+        }
 
         if !isBatteryLow {
-            clearCutoffEpisode()
-            updateAssertions()
+            clearBatteryCutoffEpisode()
+        } else if shouldUseSilentCutoff {
+            batteryCutoffSuspended = true
+        }
+
+        updateAssertions()
+
+        if thermalHot {
+            requestThermalSleepNowIfNeeded()
             return
         }
 
         if shouldUseSilentCutoff {
-            cutoffSuspended = true
-            updateAssertions()
             requestSleepNowIfNeeded()
             return
         }
 
         if shouldOfferLidOpenCutoff {
-            updateAssertions()
             presentLidOpenCutoffDialogIfNeeded()
-            return
         }
-
-        updateAssertions()
     }
 
     private func presentLidOpenCutoffDialogIfNeeded() {
@@ -229,7 +295,7 @@ final class PowerAssertionManager: ObservableObject {
         BatteryCutoffAlert.present(percent: percent, threshold: threshold) { [weak self] sleepNow in
             guard let self else { return }
             if sleepNow {
-                self.cutoffSuspended = true
+                self.batteryCutoffSuspended = true
                 self.updateAssertions()
                 self.requestSleepNowIfNeeded()
             } else {
@@ -242,12 +308,12 @@ final class PowerAssertionManager: ObservableObject {
         let until = Date().timeIntervalSince1970 + Self.snoozeDuration
         UserDefaults.standard.set(until, forKey: Keys.batteryCutoffSnoozeUntil)
         ToggleLogger.logBatteryCutoffSnoozed(minutes: 30)
-        clearCutoffEpisode()
-        evaluateBatteryCutoff()
+        clearBatteryCutoffEpisode()
+        evaluateCutoffs()
     }
 
-    private func clearCutoffEpisode() {
-        cutoffSuspended = false
+    private func clearBatteryCutoffEpisode() {
+        batteryCutoffSuspended = false
         sleepRequestedForCurrentCutoff = false
         dialogShownForEpisode = false
     }
@@ -271,6 +337,28 @@ final class PowerAssertionManager: ObservableObject {
             threshold: batterySleepThreshold.rawValue
         )
         requestSleepNow()
+    }
+
+    private func requestThermalSleepNowIfNeeded() {
+        if thermalSleepRequestedForEpisode {
+            return
+        }
+
+        if let lastSleepRequestTime,
+           Date().timeIntervalSince(lastSleepRequestTime) < Self.sleepRequestCooldown {
+            return
+        }
+
+        thermalSleepRequestedForEpisode = true
+        lastSleepRequestTime = Date()
+        persistThermalSleepReason()
+        ToggleLogger.logThermalCutoff(state: thermalMonitor.stateLabel)
+        requestSleepNow()
+    }
+
+    private func persistThermalSleepReason() {
+        UserDefaults.standard.set(thermalMonitor.stateLabel.lowercased(), forKey: Keys.thermalSleepReason)
+        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: Keys.thermalSleepAt)
     }
 
     private func requestSleepNow() {
@@ -297,7 +385,7 @@ final class PowerAssertionManager: ObservableObject {
         UserDefaults.standard.set(value, forKey: key)
         isApplyingLocalChange = false
 
-        evaluateBatteryCutoff()
+        evaluateCutoffs()
     }
 
     private func applyThresholdChange(from oldValue: BatterySleepThreshold, to newValue: BatterySleepThreshold) {
@@ -313,14 +401,23 @@ final class PowerAssertionManager: ObservableObject {
         isApplyingLocalChange = false
 
         UserDefaults.standard.removeObject(forKey: Keys.batteryCutoffSnoozeUntil)
-        clearCutoffEpisode()
-        evaluateBatteryCutoff()
+        clearBatteryCutoffEpisode()
+        evaluateCutoffs()
+    }
+
+    private func applyThermalSleepChange(from oldValue: Bool, to newValue: Bool) {
+        ToggleLogger.log(toggle: "Sleep when too hot", from: oldValue, to: newValue, source: .user)
+
+        isApplyingLocalChange = true
+        UserDefaults.standard.set(newValue, forKey: Keys.thermalSleepEnabled)
+        isApplyingLocalChange = false
+
+        evaluateCutoffs()
     }
 
     private func startSyncTimer() {
         syncTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
             self?.syncFromExternalDefaultsIfNeeded()
-            self?.evaluateBatteryCutoff()
         }
         if let syncTimer {
             RunLoop.main.add(syncTimer, forMode: .common)
@@ -350,6 +447,7 @@ final class PowerAssertionManager: ObservableObject {
         let storedThreshold = BatterySleepThreshold.from(
             storedValue: UserDefaults.standard.integer(forKey: Keys.batterySleepThreshold)
         )
+        let storedThermal = Self.readThermalSleepEnabled()
 
         var didChange = false
 
@@ -390,12 +488,25 @@ final class PowerAssertionManager: ObservableObject {
             batterySleepThreshold = storedThreshold
             isApplyingLocalChange = false
             UserDefaults.standard.removeObject(forKey: Keys.batteryCutoffSnoozeUntil)
-            clearCutoffEpisode()
+            clearBatteryCutoffEpisode()
+            didChange = true
+        }
+
+        if storedThermal != isThermalSleepEnabled {
+            ToggleLogger.log(
+                toggle: "Sleep when too hot",
+                from: isThermalSleepEnabled,
+                to: storedThermal,
+                source: .external
+            )
+            isApplyingLocalChange = true
+            isThermalSleepEnabled = storedThermal
+            isApplyingLocalChange = false
             didChange = true
         }
 
         if didChange {
-            evaluateBatteryCutoff()
+            evaluateCutoffs()
         }
     }
 
@@ -419,7 +530,7 @@ final class PowerAssertionManager: ObservableObject {
 
     private func updateLidClosedAssertion() {
         let shouldEnable = isLidClosedAwakeEnabled && !cutoffSuspended
-        clamshellController.setOverrideEnabled(shouldEnable)
+        clamshellController.setOverrideEnabled(shouldEnable, isOnAC: isOnAC)
     }
 
     private func createAssertion(
