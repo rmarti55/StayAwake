@@ -38,8 +38,8 @@ struct StatusPopoverView: View {
     }
 
     private var heatDetail: String {
-        if let celsius = powerManager.virtualTemperatureCelsius {
-            return String(format: "About %.0f°C", celsius)
+        if let fahrenheit = powerManager.virtualTemperatureFahrenheit {
+            return String(format: "About %.0f°F", fahrenheit)
         }
         return "macOS thermal pressure"
     }

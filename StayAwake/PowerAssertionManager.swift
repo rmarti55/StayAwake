@@ -101,8 +101,8 @@ final class PowerAssertionManager: ObservableObject {
         thermalMonitor.stateLabel
     }
 
-    var virtualTemperatureCelsius: Double? {
-        thermalMonitor.virtualTemperatureCelsius
+    var virtualTemperatureFahrenheit: Double? {
+        thermalMonitor.virtualTemperatureFahrenheit
     }
 
     var isBatteryCutoffArmed: Bool {

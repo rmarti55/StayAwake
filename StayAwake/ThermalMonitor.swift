@@ -4,8 +4,8 @@ import IOKit
 
 final class ThermalMonitor: ObservableObject {
     @Published private(set) var thermalState: ProcessInfo.ThermalState = .nominal
-    @Published private(set) var virtualTemperatureCelsius: Double?
-    @Published private(set) var batteryTemperatureCelsius: Double?
+    @Published private(set) var virtualTemperatureFahrenheit: Double?
+    @Published private(set) var batteryTemperatureFahrenheit: Double?
 
     var isOverheating: Bool {
         thermalState == .serious || thermalState == .critical
@@ -40,11 +40,11 @@ final class ThermalMonitor: ObservableObject {
         if nextState != thermalState {
             thermalState = nextState
         }
-        if temps.battery != batteryTemperatureCelsius {
-            batteryTemperatureCelsius = temps.battery
+        if temps.battery != batteryTemperatureFahrenheit {
+            batteryTemperatureFahrenheit = temps.battery
         }
-        if temps.virtual != virtualTemperatureCelsius {
-            virtualTemperatureCelsius = temps.virtual
+        if temps.virtual != virtualTemperatureFahrenheit {
+            virtualTemperatureFahrenheit = temps.virtual
         }
     }
 
@@ -92,9 +92,16 @@ final class ThermalMonitor: ObservableObject {
         defer { IOObjectRelease(service) }
 
         return (
-            celsius(from: service, key: "Temperature"),
-            celsius(from: service, key: "VirtualTemperature")
+            fahrenheit(from: service, key: "Temperature"),
+            fahrenheit(from: service, key: "VirtualTemperature")
         )
+    }
+
+    private static func fahrenheit(from service: io_object_t, key: String) -> Double? {
+        guard let celsius = celsius(from: service, key: key) else {
+            return nil
+        }
+        return celsiusToFahrenheit(celsius)
     }
 
     private static func celsius(from service: io_object_t, key: String) -> Double? {
@@ -114,5 +121,9 @@ final class ThermalMonitor: ObservableObject {
             return centi / 100
         }
         return nil
+    }
+
+    private static func celsiusToFahrenheit(_ celsius: Double) -> Double {
+        celsius * 9 / 5 + 32
     }
 }
