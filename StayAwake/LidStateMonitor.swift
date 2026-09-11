@@ -8,20 +8,42 @@ final class LidStateMonitor: ObservableObject {
     @Published private(set) var isLidClosed = false
 
     private var workspaceObservers: [NSObjectProtocol] = []
+    private var notificationPort: IONotificationPortRef?
+    private var clamshellNotification: io_object_t = IO_OBJECT_NULL
+    private var pollTimer: Timer?
+
+    private static let pollInterval: TimeInterval = 10
+    private static let kIOPMMessageClamshellStateChange: UInt32 = 26
+    private static let kClamshellStateBit = 0x1
 
     init() {
         refresh()
         registerObservers()
+        registerClamshellNotification()
+        startPolling()
     }
 
     deinit {
         for observer in workspaceObservers {
             NSWorkspace.shared.notificationCenter.removeObserver(observer)
         }
+
+        pollTimer?.invalidate()
+
+        if clamshellNotification != IO_OBJECT_NULL {
+            IOObjectRelease(clamshellNotification)
+        }
+
+        if let notificationPort {
+            IONotificationPortDestroy(notificationPort)
+        }
     }
 
     func refresh() {
-        let closed = Self.readLidClosed()
+        applyIfChanged(Self.readLidClosed())
+    }
+
+    private func applyIfChanged(_ closed: Bool) {
         guard closed != isLidClosed else { return }
         isLidClosed = closed
     }
@@ -60,6 +82,57 @@ final class LidStateMonitor: ObservableObject {
         )
     }
 
+    private func registerClamshellNotification() {
+        guard let notificationPort = IONotificationPortCreate(kIOMainPortDefault) else {
+            print("StayAwake: Failed to create IONotificationPort for lid state")
+            return
+        }
+
+        self.notificationPort = notificationPort
+        IONotificationPortSetDispatchQueue(notificationPort, DispatchQueue.main)
+
+        let service = IOServiceGetMatchingService(
+            kIOMainPortDefault,
+            IOServiceMatching("IOPMrootDomain")
+        )
+        guard service != IO_OBJECT_NULL else {
+            print("StayAwake: IOPMrootDomain not found for lid state")
+            return
+        }
+        defer { IOObjectRelease(service) }
+
+        let selfPtr = Unmanaged.passUnretained(self).toOpaque()
+        let result = IOServiceAddInterestNotification(
+            notificationPort,
+            service,
+            kIOGeneralInterest,
+            Self.clamshellInterestCallback,
+            selfPtr,
+            &clamshellNotification
+        )
+
+        if result != KERN_SUCCESS {
+            print("StayAwake: Failed to register clamshell notification: \(result)")
+        }
+    }
+
+    private static let clamshellInterestCallback: IOServiceInterestCallback = { refcon, _, messageType, messageArgument in
+        guard messageType == kIOPMMessageClamshellStateChange else { return }
+        guard let refcon else { return }
+
+        let closed = (Int(bitPattern: messageArgument) & kClamshellStateBit) != 0
+        let monitor = Unmanaged<LidStateMonitor>.fromOpaque(refcon).takeUnretainedValue()
+        monitor.applyIfChanged(closed)
+    }
+
+    private func startPolling() {
+        let timer = Timer.scheduledTimer(withTimeInterval: Self.pollInterval, repeats: true) { [weak self] _ in
+            self?.refresh()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        pollTimer = timer
+    }
+
     private static func readLidClosed() -> Bool {
         if let clamshellClosed = readClamshellClosedFromRegistry() {
             return clamshellClosed
@@ -75,21 +148,24 @@ final class LidStateMonitor: ObservableObject {
         guard service != IO_OBJECT_NULL else { return nil }
         defer { IOObjectRelease(service) }
 
-        guard let value = IORegistryEntryCreateCFProperty(
-            service,
-            "AppleClamshellClosed" as CFString,
-            kCFAllocatorDefault,
-            0
-        )?.takeRetainedValue() else {
-            return nil
+        for key in ["AppleClamshellClosed", "AppleClamshellState"] {
+            guard let value = IORegistryEntryCreateCFProperty(
+                service,
+                key as CFString,
+                kCFAllocatorDefault,
+                0
+            )?.takeRetainedValue() else {
+                continue
+            }
+
+            if let closed = value as? Bool {
+                return closed
+            }
+            if let closed = value as? Int {
+                return closed != 0
+            }
         }
 
-        if let closed = value as? Bool {
-            return closed
-        }
-        if let closed = value as? Int {
-            return closed != 0
-        }
         return nil
     }
 

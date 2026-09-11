@@ -8,7 +8,7 @@ Versioning: `CFBundleShortVersionString` (marketing) + `CFBundleVersion` / `CURR
 
 ### Added
 
-- **Sleep when too hot** — silent `pmset sleepnow` when macOS thermal pressure is Serious or Critical; after-wake alert explains why
+- **Sleep when too hot** — silent `pmset sleepnow` when macOS thermal pressure is Fair, Serious, or Critical; after-wake alert explains why
 - Heat row in the popover (Nominal / Fair / Serious / Critical, plus approximate temperature)
 - **Menu popover UI** — click the cup icon to open a panel with uptime stats, 24h sleep/wake timeline, and keep-awake toggles
 - **Two uptime clocks** — "Up since reboot" (sleep does not reset) and "Awake since sleep" (resets on sleep)
@@ -22,6 +22,9 @@ Versioning: `CFBundleShortVersionString` (marketing) + `CFBundleVersion` / `CURR
 
 ### Fixed
 
+- **Lid-closed battery sleep showed a modal and drained past 5%:** lid state was stale while clamshell keep-awake held the Mac up; lid is now polled and subscribed via IOPM, re-read before every cutoff, and silent sleep wins over the dialog when the lid is closed
+- **Heat at Fair (~117°F) did not sleep:** Fair now counts as too hot, not only Serious/Critical
+- **Lid-open keep-awake ran with the lid closed:** idle/display assertions now apply only when the lid is actually open
 - **StayAwake pegged at ~99% CPU:** clamshell override was re-applied on every battery/lid tick, and monitors published even when nothing changed — a self-feeding IOKit loop. Override and heartbeat are now idempotent; monitors publish only on real changes
 - **Sleep clock and timeline wrong after launch:** pmset full-log seed often timed out, leaving `events.json` empty; now uses filtered `grep | tail` pipeline (~3s), quick last-wake fallback, popover retry, and safe persistence
 

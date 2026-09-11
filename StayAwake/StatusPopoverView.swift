@@ -38,10 +38,28 @@ struct StatusPopoverView: View {
     }
 
     private var heatDetail: String {
-        if let fahrenheit = powerManager.virtualTemperatureFahrenheit {
-            return String(format: "About %.0f°F", fahrenheit)
+        let internalReading = internalTemperatureCaption
+        switch powerManager.thermalStateLabel {
+        case "Nominal":
+            return "Mac says heat is fine\(internalReading)"
+        case "Fair", "Serious", "Critical":
+            return "Too hot — sleep will trigger\(internalReading)"
+        default:
+            return "Sleep triggers at Fair or higher\(internalReading)"
         }
-        return "macOS thermal pressure"
+    }
+
+    private var internalTemperatureCaption: String {
+        guard let virtual = powerManager.virtualTemperatureFahrenheit else {
+            return ""
+        }
+
+        if let battery = powerManager.batteryTemperatureFahrenheit,
+           abs(battery - virtual) >= 5 {
+            return String(format: " · internal ~%.0f–%.0f°F (not case temp)", battery, virtual)
+        }
+
+        return String(format: " · internal ~%.0f°F (not case temp)", virtual)
     }
 
     private func statRow(title: String, value: String, detail: String) -> some View {
@@ -96,7 +114,7 @@ struct StatusPopoverView: View {
         VStack(alignment: .leading, spacing: 10) {
             Toggle("Sleep when too hot", isOn: $powerManager.isThermalSleepEnabled)
 
-            Text("Sleeps the Mac if heat is serious. You’ll see why after you wake it.")
+            Text("Sleeps the Mac when heat reaches Fair or higher. You’ll see why after you wake it.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 

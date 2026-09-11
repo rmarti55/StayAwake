@@ -45,7 +45,7 @@ flowchart TB
 | [`AppInstanceLock.swift`](../StayAwake/AppInstanceLock.swift) | `flock` single-instance lock in `~/Library/Caches/StayAwake/stayawake.lock` |
 | [`PowerAssertionManager.swift`](../StayAwake/PowerAssertionManager.swift) | Coordinates lid-open IOKit assertions, lid-closed clamshell controller, battery cutoff, and thermal cutoff |
 | [`BatteryMonitor.swift`](../StayAwake/BatteryMonitor.swift) | IOKit Power Sources: AC vs battery, remaining percent, change notifications (publish only on real change) |
-| [`LidStateMonitor.swift`](../StayAwake/LidStateMonitor.swift) | Lid open/closed via IOKit clamshell state and built-in display detection (publish only on real change) |
+| [`LidStateMonitor.swift`](../StayAwake/LidStateMonitor.swift) | Lid open/closed via IOKit clamshell registry, `kIOPMMessageClamshellStateChange`, built-in display fallback, and 10s poll (publish only on real change) |
 | [`ThermalMonitor.swift`](../StayAwake/ThermalMonitor.swift) | `ProcessInfo.thermalState` plus battery VirtualTemperature for the popover |
 | [`BatteryCutoffAlert.swift`](../StayAwake/BatteryCutoffAlert.swift) | Low-battery warning dialog (Sleep Now / Keep Going) for lid-open cutoff |
 | [`ThermalSleepAlert.swift`](../StayAwake/ThermalSleepAlert.swift) | After-wake dialog explaining the Mac slept because it got too hot |
@@ -172,14 +172,14 @@ UserDefaults keys: `stayawake.batterySleepThreshold` (`0` = off), `stayawake.bat
 
 ### Thermal sleep cutoff
 
-`ThermalMonitor` reads `ProcessInfo.thermalState` (notification + 15s poll) and optional `AppleSmartBattery` temps. When **Sleep when too hot** is on (default) and state is **Serious** or **Critical**:
+`ThermalMonitor` reads `ProcessInfo.thermalState` (notification + 15s poll) and optional `AppleSmartBattery` temps. When **Sleep when too hot** is on (default) and state is **Fair**, **Serious**, or **Critical**:
 
 1. Suspend keep-awake
 2. Persist `stayawake.thermalSleepReason`
 3. Silent `pmset sleepnow` (10s debounce) — no dialog in a backpack
 4. On wake (or next launch), show “Your computer was put to sleep because it got too hot.”
 
-Fair and Nominal never sleep. Fan RPM is not used (no public API).
+Nominal never sleeps. Fair, Serious, and Critical sleep when the toggle is on. Fan RPM is not used (no public API).
 
 Monitors must only publish when values actually change. Evaluating cutoff on every IOPS tick + re-applying clamshell override previously pinned StayAwake at ~99% CPU.
 
@@ -194,7 +194,7 @@ UserDefaults keys (domain `com.stayawake.app`):
 | `stayawake.batterySleepThreshold` | Sleep at battery floor (`0`, `5`, `10`, or `20`) |
 | `stayawake.batteryCutoffSnoozeUntil` | Unix timestamp — lid-open cutoff snoozed until this time |
 | `stayawake.thermalSleepEnabled` | Sleep when too hot (`true` when unset) |
-| `stayawake.thermalSleepReason` | Pending after-wake heat alert (`serious` / `critical`) |
+| `stayawake.thermalSleepReason` | Pending after-wake heat alert (`fair` / `serious` / `critical`) |
 | `stayawake.thermalSleepAt` | Unix timestamp of last thermal sleep |
 
 `PowerAssertionManager` syncs from UserDefaults every 2 seconds and on `UserDefaults.didChangeNotification` so external changes (e.g. `defaults write`) are picked up. The sync timer does **not** re-evaluate cutoff unless a stored value actually changed.

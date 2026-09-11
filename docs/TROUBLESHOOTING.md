@@ -88,7 +88,7 @@ Verify in System Settings → General → Login Items.
 
 ### Mac slept and then said it got too hot
 
-**Cause:** **Sleep when too hot** is on (default). StayAwake slept the machine when macOS reported Serious or Critical heat — including the backpack-with-lid-open case.
+**Cause:** **Sleep when too hot** is on (default). StayAwake slept the machine when macOS reported Fair, Serious, or Critical heat — including the backpack-with-lid-open case.
 
 **Fix:** That is intended. Turn the toggle off in the popover only if you want to allow the Mac to stay awake while overheating.
 

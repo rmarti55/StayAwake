@@ -8,7 +8,14 @@ final class ThermalMonitor: ObservableObject {
     @Published private(set) var batteryTemperatureFahrenheit: Double?
 
     var isOverheating: Bool {
-        thermalState == .serious || thermalState == .critical
+        switch thermalState {
+        case .fair, .serious, .critical:
+            return true
+        case .nominal:
+            return false
+        @unknown default:
+            return false
+        }
     }
 
     var stateLabel: String {

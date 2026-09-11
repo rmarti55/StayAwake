@@ -105,6 +105,10 @@ final class PowerAssertionManager: ObservableObject {
         thermalMonitor.virtualTemperatureFahrenheit
     }
 
+    var batteryTemperatureFahrenheit: Double? {
+        thermalMonitor.batteryTemperatureFahrenheit
+    }
+
     var isBatteryCutoffArmed: Bool {
         isBatteryCutoffConfigured && (isLidClosedAwakeEnabled || isLidOpenAwakeEnabled)
     }
@@ -254,6 +258,8 @@ final class PowerAssertionManager: ObservableObject {
     }
 
     private func evaluateCutoffs() {
+        lidStateMonitor.refresh()
+
         let thermalHot = isThermalSleepEnabled && thermalMonitor.isOverheating
         if thermalHot {
             thermalCutoffSuspended = true
@@ -276,7 +282,7 @@ final class PowerAssertionManager: ObservableObject {
         }
 
         if shouldUseSilentCutoff {
-            requestSleepNowIfNeeded()
+            takeSilentBatteryCutoff()
             return
         }
 
@@ -285,12 +291,44 @@ final class PowerAssertionManager: ObservableObject {
         }
     }
 
+    private func takeSilentBatteryCutoff() {
+        BatteryCutoffAlert.dismissIfPresent()
+        batteryCutoffSuspended = true
+        updateAssertions()
+
+        if let percent = batteryPercent {
+            ToggleLogger.logBatteryCutoffDecision(
+                path: "silent",
+                percent: percent,
+                threshold: batterySleepThreshold.rawValue,
+                lidClosed: lidStateMonitor.isLidClosed
+            )
+        }
+
+        requestSleepNowIfNeeded()
+    }
+
     private func presentLidOpenCutoffDialogIfNeeded() {
+        lidStateMonitor.refresh()
+
+        if shouldUseSilentCutoff {
+            takeSilentBatteryCutoff()
+            return
+        }
+
+        guard shouldOfferLidOpenCutoff else { return }
         guard !dialogShownForEpisode else { return }
         guard let percent = batteryPercent else { return }
 
         dialogShownForEpisode = true
         let threshold = batterySleepThreshold.rawValue
+
+        ToggleLogger.logBatteryCutoffDecision(
+            path: "dialog",
+            percent: percent,
+            threshold: threshold,
+            lidClosed: lidStateMonitor.isLidClosed
+        )
 
         BatteryCutoffAlert.present(percent: percent, threshold: threshold) { [weak self] sleepNow in
             guard let self else { return }
@@ -511,7 +549,7 @@ final class PowerAssertionManager: ObservableObject {
     }
 
     private func updateLidOpenAssertion() {
-        if isLidOpenAwakeEnabled && !cutoffSuspended {
+        if isLidOpenAwakeEnabled && !cutoffSuspended && !lidStateMonitor.isLidClosed {
             createAssertion(
                 type: kIOPMAssertionTypePreventUserIdleSystemSleep,
                 id: &idleSystemAssertionID,

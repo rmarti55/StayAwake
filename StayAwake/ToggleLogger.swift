@@ -34,6 +34,13 @@ enum ToggleLogger {
         write("\(timestamp()) [battery] battery cutoff: \(percent)% <= \(threshold)% → sleep")
     }
 
+    static func logBatteryCutoffDecision(path: String, percent: Int, threshold: Int, lidClosed: Bool) {
+        write(
+            "\(timestamp()) [battery] battery cutoff \(path): \(percent)% <= \(threshold)%, " +
+            "lidClosed=\(lidClosed)"
+        )
+    }
+
     static func logBatteryCutoffSnoozed(minutes: Int) {
         write("\(timestamp()) [battery] battery cutoff snoozed for \(minutes) minutes")
     }
