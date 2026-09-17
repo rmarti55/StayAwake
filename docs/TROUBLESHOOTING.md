@@ -78,6 +78,34 @@ Verify in System Settings → General → Login Items.
 
 ---
 
+### Reading the log after battery cutoff or sleep failure
+
+**Log file:** `~/Library/Logs/StayAwake.log` (popover → **Open log**). Crash-survivable snapshot: `~/Library/Logs/StayAwake-last-state.json`.
+
+**Good lid-closed battery cutoff (sleep worked):**
+
+```
+[battery] battery cutoff silent: 5% <= 5%, lidClosed=true
+[battery] handoff: clamshellCausesSleep=no, delay=1s | ...
+[battery] handoff ready: clamshellCausesSleep=no | ...
+[sleep] sleepnow spawned (battery cutoff silent) | ...
+[sleep] willSleep | ...
+```
+
+**Bad — sleep never started (StayAwake keeps retrying):**
+
+```
+[sleep] sleepnow spawned ...
+[sleep] battery retry 1: sleepnow issued but still awake | ...
+[battery] handoff: ...
+```
+
+If `handoff ready` shows `clamshellCausesSleep=yes`, clamshell override did not release before sleep — file a bug with that line.
+
+**After a kernel panic / reboot:** look for `[init] reconcile: reboot during sleep/wake (last=sleepnow` or `last=willSleep`.
+
+---
+
 ### StayAwake using a full CPU core / Mac running hot
 
 **Cause (old builds):** Keep Awake (Lid Closed) re-applied the kernel override on every battery update, which retriggered the battery listener. That loop could pin ~99% CPU for hours.

@@ -173,6 +173,26 @@ enum ToggleLogger {
         write("\(timestamp()) [battery] battery cutoff snoozed for \(minutes) minutes")
     }
 
+    static func logBatteryHandoff(
+        clamshellCausesSleep: Bool?,
+        delaySeconds: TimeInterval,
+        snapshot: DiagnosticSnapshot
+    ) {
+        let clamshell = clamshellCausesSleep.map { $0 ? "yes" : "no" } ?? "unknown"
+        write(
+            "\(timestamp()) [battery] handoff: clamshellCausesSleep=\(clamshell), " +
+            "delay=\(Int(delaySeconds))s | \(snapshot.compactDescription())"
+        )
+    }
+
+    static func logBatteryHandoffReady(clamshellCausesSleep: Bool?, snapshot: DiagnosticSnapshot) {
+        let clamshell = clamshellCausesSleep.map { $0 ? "yes" : "no" } ?? "unknown"
+        write(
+            "\(timestamp()) [battery] handoff ready: clamshellCausesSleep=\(clamshell) | " +
+            "\(snapshot.compactDescription())"
+        )
+    }
+
     static func logThermalCutoff(state: String) {
         write("\(timestamp()) [thermal] thermal cutoff: \(state) → sleep")
     }
@@ -201,10 +221,17 @@ enum ToggleLogger {
         write("\(timestamp()) [sleep] screensDidSleep | \(snapshot.compactDescription())")
     }
 
-    static func logSleepVerifyTimeout(attempt: Int, snapshot: DiagnosticSnapshot) {
+    static func logSleepVerifyTimeout(attempt: Int, maxAttempts: Int, snapshot: DiagnosticSnapshot) {
         write(
             "\(timestamp()) [sleep] sleepnow issued but still awake " +
-            "(attempt \(attempt)/3) | \(snapshot.compactDescription())"
+            "(attempt \(attempt)/\(maxAttempts)) | \(snapshot.compactDescription())"
+        )
+    }
+
+    static func logBatterySleepVerifyTimeout(attempt: Int, snapshot: DiagnosticSnapshot) {
+        write(
+            "\(timestamp()) [sleep] battery retry \(attempt): sleepnow issued but still awake | " +
+            "\(snapshot.compactDescription())"
         )
     }
 

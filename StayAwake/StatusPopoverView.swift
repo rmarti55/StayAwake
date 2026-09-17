@@ -41,6 +41,9 @@ struct StatusPopoverView: View {
         let internalReading = internalTemperatureCaption
         switch powerManager.thermalStateLabel {
         case "Nominal":
+            if powerManager.isLidClosed {
+                return "Mac says heat is fine — case may still feel warm\(internalReading)"
+            }
             return "Mac says heat is fine\(internalReading)"
         case "Fair":
             if powerManager.isLidClosed {

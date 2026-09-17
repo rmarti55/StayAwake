@@ -48,6 +48,9 @@ final class PowerAssertionManager: ObservableObject {
     private var sleepVerifyTimer: Timer?
     private var sleepVerifyAttempt = 0
     private var pendingSleepReason = "unknown"
+    private var silentCutoffLoggedForEpisode = false
+    private var batteryHandoffScheduled = false
+    private var batteryHandoffWorkItem: DispatchWorkItem?
     private var lastLoggedBatteryPercent: Int?
     private var lastLoggedIsOnAC: Bool?
     private var lastLoggedThermalState: String?
@@ -57,7 +60,9 @@ final class PowerAssertionManager: ObservableObject {
     private static let sleepRequestCooldown: TimeInterval = 10
     private static let snoozeDuration: TimeInterval = 30 * 60
     private static let sleepVerifyInterval: TimeInterval = 20
-    private static let maxSleepVerifyAttempts = 3
+    private static let maxThermalSleepVerifyAttempts = 3
+    private static let batteryHandoffDelay: TimeInterval = 1.5
+    private static let maxBatterySleepVerifyInterval: TimeInterval = 60
 
     @Published var isLidOpenAwakeEnabled = UserDefaults.standard.bool(forKey: Keys.lidOpenAwake) {
         didSet {
@@ -162,6 +167,7 @@ final class PowerAssertionManager: ObservableObject {
 
     func cleanupOnQuit() {
         cancelSleepVerifyTimer()
+        cancelBatteryHandoff()
 
         if let defaultsObserver {
             NotificationCenter.default.removeObserver(defaultsObserver)
@@ -385,6 +391,8 @@ final class PowerAssertionManager: ObservableObject {
         ) { [weak self] _ in
             guard let self else { return }
             self.cancelSleepVerifyTimer()
+            self.cancelBatteryHandoff()
+            self.silentCutoffLoggedForEpisode = false
             ToggleLogger.logWillSleep(snapshot: self.diagnosticSnapshot())
         }
 
@@ -496,9 +504,17 @@ final class PowerAssertionManager: ObservableObject {
     }
 
     private func takeSilentBatteryCutoff() {
+        guard !batteryHandoffScheduled else { return }
+
         BatteryCutoffAlert.dismissIfPresent()
         batteryCutoffSuspended = true
         updateAssertions()
+
+        if silentCutoffLoggedForEpisode {
+            return
+        }
+
+        silentCutoffLoggedForEpisode = true
 
         if let percent = batteryPercent {
             ToggleLogger.logBatteryCutoffDecision(
@@ -513,7 +529,39 @@ final class PowerAssertionManager: ObservableObject {
             )
         }
 
-        requestSleepNowIfNeeded(reason: "battery cutoff silent")
+        scheduleBatterySleepHandoff()
+    }
+
+    private func scheduleBatterySleepHandoff() {
+        cancelBatteryHandoff()
+        batteryHandoffScheduled = true
+
+        let snapshot = diagnosticSnapshot(cutoffKind: "battery", sleepRequested: true)
+        ToggleLogger.logBatteryHandoff(
+            clamshellCausesSleep: ClamshellSleepController.clamshellCausesSleep(),
+            delaySeconds: Self.batteryHandoffDelay,
+            snapshot: snapshot
+        )
+
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.batteryHandoffScheduled = false
+            self.batteryHandoffWorkItem = nil
+
+            ToggleLogger.logBatteryHandoffReady(
+                clamshellCausesSleep: ClamshellSleepController.clamshellCausesSleep(),
+                snapshot: self.diagnosticSnapshot(cutoffKind: "battery", sleepRequested: true)
+            )
+            self.requestSleepNowIfNeeded(reason: "battery cutoff silent")
+        }
+        batteryHandoffWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.batteryHandoffDelay, execute: work)
+    }
+
+    private func cancelBatteryHandoff() {
+        batteryHandoffWorkItem?.cancel()
+        batteryHandoffWorkItem = nil
+        batteryHandoffScheduled = false
     }
 
     private func presentLidOpenCutoffDialogIfNeeded() {
@@ -566,8 +614,10 @@ final class PowerAssertionManager: ObservableObject {
         batteryCutoffSuspended = false
         sleepRequestedForCurrentCutoff = false
         dialogShownForEpisode = false
+        silentCutoffLoggedForEpisode = false
         sleepVerifyAttempt = 0
         cancelSleepVerifyTimer()
+        cancelBatteryHandoff()
         lastLoggedCutoffSkipReason = nil
     }
 
@@ -592,7 +642,7 @@ final class PowerAssertionManager: ObservableObject {
         lastSleepRequestTime = Date()
         pendingSleepReason = reason
 
-        if let percent = batteryPercent {
+        if let percent = batteryPercent, sleepVerifyAttempt == 0 {
             ToggleLogger.logBatteryCutoff(
                 percent: percent,
                 threshold: batterySleepThreshold.rawValue
@@ -650,7 +700,7 @@ final class PowerAssertionManager: ObservableObject {
         do {
             try process.run()
             ToggleLogger.logSleepNowSpawned(success: true, reason: reason, snapshot: snapshot)
-            scheduleSleepVerifyTimer()
+            scheduleSleepVerifyTimer(isBattery: isBatterySleepReason(reason))
         } catch {
             ToggleLogger.logSleepNowSpawned(success: false, reason: reason, snapshot: snapshot)
             print("StayAwake: Failed to request sleep: \(error)")
@@ -659,12 +709,28 @@ final class PowerAssertionManager: ObservableObject {
         }
     }
 
-    private func scheduleSleepVerifyTimer() {
+    private func isBatterySleepReason(_ reason: String) -> Bool {
+        reason.contains("battery")
+    }
+
+    private func batterySleepVerifyInterval() -> TimeInterval {
+        switch sleepVerifyAttempt {
+        case 0, 1:
+            return Self.sleepVerifyInterval
+        case 2:
+            return 40
+        default:
+            return Self.maxBatterySleepVerifyInterval
+        }
+    }
+
+    private func scheduleSleepVerifyTimer(isBattery: Bool) {
         cancelSleepVerifyTimer()
 
         sleepVerifyAttempt += 1
-        let timer = Timer.scheduledTimer(withTimeInterval: Self.sleepVerifyInterval, repeats: false) { [weak self] _ in
-            self?.handleSleepVerifyTimeout()
+        let interval = isBattery ? batterySleepVerifyInterval() : Self.sleepVerifyInterval
+        let timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: false) { [weak self] _ in
+            self?.handleSleepVerifyTimeout(isBattery: isBattery)
         }
         RunLoop.main.add(timer, forMode: .common)
         sleepVerifyTimer = timer
@@ -675,18 +741,32 @@ final class PowerAssertionManager: ObservableObject {
         sleepVerifyTimer = nil
     }
 
-    private func handleSleepVerifyTimeout() {
+    private func handleSleepVerifyTimeout(isBattery: Bool) {
         sleepVerifyTimer = nil
 
         let snapshot = diagnosticSnapshot()
-        ToggleLogger.logSleepVerifyTimeout(attempt: sleepVerifyAttempt, snapshot: snapshot)
 
-        guard sleepVerifyAttempt < Self.maxSleepVerifyAttempts else { return }
+        if isBattery {
+            ToggleLogger.logBatterySleepVerifyTimeout(attempt: sleepVerifyAttempt, snapshot: snapshot)
 
-        let shouldRetryBattery = shouldUseSilentCutoff || (isBatteryLow && batteryCutoffSuspended)
-        let shouldRetryThermal = thermalCutoffSuspended && isThermalSleepEnabled
+            guard shouldUseSilentCutoff || (isBatteryLow && batteryCutoffSuspended) else { return }
 
-        guard shouldRetryBattery || shouldRetryThermal else { return }
+            sleepRequestedForCurrentCutoff = false
+            lastSleepRequestTime = nil
+            lastLoggedCutoffSkipReason = nil
+            scheduleBatterySleepHandoff()
+            return
+        }
+
+        ToggleLogger.logSleepVerifyTimeout(
+            attempt: sleepVerifyAttempt,
+            maxAttempts: Self.maxThermalSleepVerifyAttempts,
+            snapshot: snapshot
+        )
+
+        guard sleepVerifyAttempt < Self.maxThermalSleepVerifyAttempts else { return }
+
+        guard thermalCutoffSuspended && isThermalSleepEnabled else { return }
 
         sleepRequestedForCurrentCutoff = false
         thermalSleepRequestedForEpisode = false

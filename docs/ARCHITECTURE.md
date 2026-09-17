@@ -159,7 +159,7 @@ On disable/quit, restores clamshell sleep unless "official clamshell mode" is ac
 
 | Lid state | Keep-awake mode | Behavior |
 |---|---|---|
-| Closed | Lid Closed on | **Silent sleep** — suspend keep-awake, `pmset sleepnow` (10s debounce) |
+| Closed | Lid Closed on | **Silent sleep** — suspend keep-awake, 1.5s clamshell handoff, then `pmset sleepnow`; persistent retry with backoff if sleep never starts |
 | Open | Lid Open on | **Warning dialog** — Sleep Now / Keep Going (30 min snooze) |
 | Closed + both on | Both | Silent path wins |
 | Open + both on | Both | Dialog path |
