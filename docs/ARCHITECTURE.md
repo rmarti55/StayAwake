@@ -172,14 +172,17 @@ UserDefaults keys: `stayawake.batterySleepThreshold` (`0` = off), `stayawake.bat
 
 ### Thermal sleep cutoff
 
-`ThermalMonitor` reads `ProcessInfo.thermalState` (notification + 15s poll) and optional `AppleSmartBattery` temps. When **Sleep when too hot** is on (default) and state is **Fair**, **Serious**, or **Critical**:
+`ThermalMonitor` reads `ProcessInfo.thermalState` (notification + 15s poll) and optional `AppleSmartBattery` temps. When **Sleep when too hot** is on (default), thermal sleep runs **only with the lid closed**:
+
+- **Lid open:** no thermal sleep, no heat alert
+- **Lid closed:** **Serious** or **Critical** immediately, or **Fair** only if internal sensors read ~140°F (~20% above the prior Fair floor)
 
 1. Suspend keep-awake
-2. Persist `stayawake.thermalSleepReason`
+2. Persist `stayawake.thermalSleepReason` and `stayawake.thermalSleepLidClosed`
 3. Silent `pmset sleepnow` (10s debounce) — no dialog in a backpack
-4. On wake (or next launch), show “Your computer was put to sleep because it got too hot.”
+4. On wake (or next launch), show “Your computer was put to sleep because it got too hot.” only if the sleep was lid-closed
 
-Nominal never sleeps. Fair, Serious, and Critical sleep when the toggle is on. Fan RPM is not used (no public API).
+Nominal never sleeps. Lid-closed Fair uses a higher internal temperature floor (~140°F). Fan RPM is not used (no public API).
 
 Monitors must only publish when values actually change. Evaluating cutoff on every IOPS tick + re-applying clamshell override previously pinned StayAwake at ~99% CPU.
 
@@ -196,6 +199,7 @@ UserDefaults keys (domain `com.stayawake.app`):
 | `stayawake.thermalSleepEnabled` | Sleep when too hot (`true` when unset) |
 | `stayawake.thermalSleepReason` | Pending after-wake heat alert (`fair` / `serious` / `critical`) |
 | `stayawake.thermalSleepAt` | Unix timestamp of last thermal sleep |
+| `stayawake.thermalSleepLidClosed` | `true` when thermal sleep was requested with lid closed (gates after-wake alert) |
 
 `PowerAssertionManager` syncs from UserDefaults every 2 seconds and on `UserDefaults.didChangeNotification` so external changes (e.g. `defaults write`) are picked up. The sync timer does **not** re-evaluate cutoff unless a stored value actually changed.
 
@@ -203,18 +207,39 @@ Start at Login state comes from `SMAppService.mainApp.status`, not UserDefaults.
 
 ## Logging
 
-`ToggleLogger` writes ISO8601 timestamps to `~/Library/Logs/StayAwake.log`:
+`ToggleLogger` writes ISO8601 timestamps to `~/Library/Logs/StayAwake.log`. Logging is **event-driven** — nothing polls just to write a line. The file is capped at ~2 MB (oldest half trimmed on write).
+
+Crash-survivable state is also written to `~/Library/Logs/StayAwake-last-state.json` before sleep requests and on lid-close. On launch, a `[init] reconcile:` line compares that snapshot to the current boot time and battery.
+
+Example lines:
 
 ```
-2026-09-03T22:15:00.123Z [user] Keep Awake (Lid Open): false -> true
-2026-09-03T22:15:00.456Z [init] Keep Awake (Lid Closed): enabled=false
-2026-09-03T22:16:00.789Z [external] Start at Login: false -> true
-2026-09-03T23:00:00.000Z [battery] battery cutoff: 9% <= 10% → sleep
-2026-09-03T23:01:00.000Z [menubar] item x=1536..1568, notch=771..956, visible=true, blocked=false
-2026-09-08T18:30:00.000Z [thermal] thermal cutoff: Serious → sleep
+2026-09-14T18:00:00.123Z [init] launch battery=42% ac=false lid=open ...
+2026-09-14T18:00:00.456Z [init] reconcile: same boot, last event=didWake
+2026-09-14T18:05:00.000Z [lid] lid closed | battery=8% ac=false lid=closed ...
+2026-09-14T18:10:00.000Z [power] battery 6% -> 5% | battery=5% ...
+2026-09-14T18:10:01.000Z [battery] battery cutoff silent: 5% <= 5%, lidClosed=true
+2026-09-14T18:10:01.100Z [sleep] sleepnow spawned (battery cutoff silent) | ...
+2026-09-14T18:10:05.000Z [sleep] willSleep | ...
+2026-09-14T18:10:21.000Z [sleep] sleepnow issued but still awake (attempt 1/3) | ...
+2026-09-14T18:15:00.000Z [battery] cutoff skipped: sleep already requested at 5% | ...
+2026-09-14T19:00:00.000Z [init] reconcile: reboot during sleep/wake (last=willSleep, likely kernel panic or hard reset)
 ```
 
-Sources: `user`, `init`, `external`, `battery`, `thermal`, `menubar`.
+| Tag | When it fires |
+|---|---|
+| `init` | Launch, startup toggles, session reconcile |
+| `user` / `external` | Toggle changes |
+| `lid` | Lid open/close |
+| `power` | Battery % change (lid closed or within 5 points of cutoff), AC plug/unplug, clamshell override apply/restore |
+| `battery` | Cutoff decisions, snooze, skip reasons |
+| `thermal` | Thermal **state** change (not every temp tick), thermal cutoff, after-wake alert |
+| `sleep` | `sleepnow` spawn, `willSleep`, `didWake`, screens sleep, verify timeout |
+| `menubar` | Status item position vs notch |
+
+Compact snapshots on important lines include battery, AC, lid, toggles, threshold, thermal state/temp, clamshell override, active cutoff, and whether a sleep was already requested.
+
+Open the log from the popover (**Open log**) or `tail -f ~/Library/Logs/StayAwake.log`.
 
 ## Build and install
 

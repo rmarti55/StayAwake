@@ -7,16 +7,31 @@ final class ThermalMonitor: ObservableObject {
     @Published private(set) var virtualTemperatureFahrenheit: Double?
     @Published private(set) var batteryTemperatureFahrenheit: Double?
 
-    var isOverheating: Bool {
+    /// Lid closed only: Serious/Critical immediately, or Fair only if internal sensors read
+    /// ~20% above the prior Fair floor (~117°F → ~140°F).
+    func isOverheating(lidClosed: Bool) -> Bool {
+        guard lidClosed else { return false }
+
         switch thermalState {
-        case .fair, .serious, .critical:
+        case .serious, .critical:
             return true
+        case .fair:
+            return exceedsLidClosedFairTemperatureThreshold
         case .nominal:
             return false
         @unknown default:
             return false
         }
     }
+
+    private var exceedsLidClosedFairTemperatureThreshold: Bool {
+        guard let virtual = virtualTemperatureFahrenheit else { return false }
+        let peak = max(virtual, batteryTemperatureFahrenheit ?? virtual)
+        return peak >= Self.lidClosedFairSleepMinFahrenheit
+    }
+
+    /// ~117°F Fair reference from field use, raised ~20% for clamshell keep-awake.
+    private static let lidClosedFairSleepMinFahrenheit: Double = 140
 
     var stateLabel: String {
         Self.label(for: thermalState)

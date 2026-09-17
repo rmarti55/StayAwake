@@ -8,6 +8,9 @@ Versioning: `CFBundleShortVersionString` (marketing) + `CFBundleVersion` / `CURR
 
 ### Added
 
+- **Event-driven diagnostics** — lid, battery drain, AC, thermal state, clamshell override, cutoff skip reasons, and sleep lifecycle (`sleepnow`, `willSleep`, `didWake`) logged to `~/Library/Logs/StayAwake.log`; crash-survivable snapshot at `~/Library/Logs/StayAwake-last-state.json`; launch reconcile distinguishes panic reboot vs missed sleep
+- **Sleep verify + retry** — if `pmset sleepnow` does not put the Mac to sleep within 20s, StayAwake logs it and retries up to 3 times per episode
+- **Open log** button in the popover (reveals log in Finder)
 - **Sleep when too hot** — silent `pmset sleepnow` when macOS thermal pressure is Fair, Serious, or Critical; after-wake alert explains why
 - Heat row in the popover (Nominal / Fair / Serious / Critical, plus approximate temperature)
 - **Menu popover UI** — click the cup icon to open a panel with uptime stats, 24h sleep/wake timeline, and keep-awake toggles
@@ -17,11 +20,15 @@ Versioning: `CFBundleShortVersionString` (marketing) + `CFBundleVersion` / `CURR
 
 ### Changed
 
+- **Thermal sleep is lid-closed only** — with the lid open, StayAwake no longer forces sleep or shows the heat alert; clamshell Serious/Critical (or Fair at ~140°F internal) still sleeps silently
+- **Lid-closed heat sleep** — Fair alone no longer sleeps in clamshell mode unless internal sensors read ~140°F (~20% above the prior Fair floor); Serious/Critical still sleep immediately
 - Replaced dropdown `NSMenu` with `NSPopover` hosting SwiftUI (`StatusPopoverView`)
 - Reveal-on-reopen and duplicate launch now open the popover instead of the old menu
 
 ### Fixed
 
+- **Thermal sleep fired with lid open:** heat cutoff and after-wake alert now run only when the lid is closed
+- **Battery drained past cutoff after first sleep request failed:** if `pmset sleepnow` did not start sleep, later battery ticks were ignored; sleep-verify now retries instead of silently giving up
 - **Lid-closed battery sleep showed a modal and drained past 5%:** lid state was stale while clamshell keep-awake held the Mac up; lid is now polled and subscribed via IOPM, re-read before every cutoff, and silent sleep wins over the dialog when the lid is closed
 - **Heat at Fair (~117°F) did not sleep:** Fair now counts as too hot, not only Serious/Critical
 - **Lid-open keep-awake ran with the lid closed:** idle/display assertions now apply only when the lid is actually open

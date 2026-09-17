@@ -42,10 +42,18 @@ struct StatusPopoverView: View {
         switch powerManager.thermalStateLabel {
         case "Nominal":
             return "Mac says heat is fine\(internalReading)"
-        case "Fair", "Serious", "Critical":
-            return "Too hot — sleep will trigger\(internalReading)"
+        case "Fair":
+            if powerManager.isLidClosed {
+                return "Warm — lid closed waits for ~140°F internal or Serious\(internalReading)"
+            }
+            return "Warm — heat sleep is lid closed only\(internalReading)"
+        case "Serious", "Critical":
+            if powerManager.isLidClosed {
+                return "Too hot — lid closed sleep will trigger\(internalReading)"
+            }
+            return "Too hot — heat sleep is lid closed only\(internalReading)"
         default:
-            return "Sleep triggers at Fair or higher\(internalReading)"
+            return "Heat sleep is lid closed only\(internalReading)"
         }
     }
 
@@ -62,6 +70,22 @@ struct StatusPopoverView: View {
         return String(format: " · internal ~%.0f°F (not case temp)", virtual)
     }
 
+    private func captionText(_ string: String, color: Color = .secondary) -> some View {
+        Text(string)
+            .font(.caption)
+            .foregroundStyle(color)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func caption2Text(_ string: String) -> some View {
+        Text(string)
+            .font(.caption2)
+            .foregroundStyle(.tertiary)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     private func statRow(title: String, value: String, detail: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(title)
@@ -70,9 +94,7 @@ struct StatusPopoverView: View {
             Text(value)
                 .font(.system(.title2, design: .rounded).weight(.semibold))
                 .monospacedDigit()
-            Text(detail)
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
+            caption2Text(detail)
         }
     }
 
@@ -114,22 +136,18 @@ struct StatusPopoverView: View {
         VStack(alignment: .leading, spacing: 10) {
             Toggle("Sleep when too hot", isOn: $powerManager.isThermalSleepEnabled)
 
-            Text("Sleeps the Mac when heat reaches Fair or higher. You’ll see why after you wake it.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            captionText(
+                "Lid closed only. Sleeps at Serious/Critical, or Fair if internal ~140°F."
+            )
 
             if powerManager.isThermalCutoffActive {
-                Text("Heat cutoff active — keep-awake suspended")
-                    .font(.caption)
-                    .foregroundStyle(.orange)
+                captionText("Heat cutoff active — keep-awake suspended", color: .orange)
             }
 
             Toggle("Keep Awake (Lid Open)", isOn: $powerManager.isLidOpenAwakeEnabled)
 
             if powerManager.isLidOpenAwakeEnabled {
-                Text("Low battery shows a warning before sleeping (lid open only)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                captionText("Low battery shows a warning before sleeping (lid open only)")
             }
 
             Toggle("Keep Awake (Lid Closed)", isOn: $powerManager.isLidClosedAwakeEnabled)
@@ -137,13 +155,9 @@ struct StatusPopoverView: View {
             if powerManager.isLidClosedAwakeEnabled {
                 VStack(alignment: .leading, spacing: 6) {
                     if powerManager.isClamshellOverrideActive {
-                        Text("Clamshell override: active")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                        captionText("Clamshell override: active")
                     }
-                    Text("Lid closed runs hot — use with care")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    captionText("Lid closed runs hot — use with care")
 
                     lidClosedBatterySection
                 }
@@ -153,6 +167,10 @@ struct StatusPopoverView: View {
                 get: { launchAtLogin.isEnabled },
                 set: { launchAtLogin.setEnabled($0) }
             ))
+
+            Button("Open log") {
+                ToggleLogger.openLogInFinder()
+            }
 
             Button("Quit") {
                 onQuit()
@@ -177,9 +195,7 @@ struct StatusPopoverView: View {
                 .frame(maxWidth: 72)
             }
 
-            Text("Silent sleep when lid is closed and battery hits this level")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            captionText("Silent sleep when lid is closed and battery hits this level")
 
             if powerManager.hasInternalBattery {
                 batteryStatusCaption
@@ -190,27 +206,19 @@ struct StatusPopoverView: View {
     private var batteryStatusCaption: some View {
         VStack(alignment: .leading, spacing: 2) {
             if let percent = powerManager.batteryPercent {
-                Text("Battery \(percent)%\(powerManager.isOnAC ? " · AC power" : "")")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                captionText("Battery \(percent)%\(powerManager.isOnAC ? " · AC power" : "")")
             }
 
             if powerManager.isBatteryCutoffArmed && powerManager.batterySleepThreshold != .off {
-                Text("Limit: \(powerManager.batterySleepThreshold.label)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                captionText("Limit: \(powerManager.batterySleepThreshold.label)")
             }
 
             if powerManager.isBatteryCutoffSnoozed {
-                Text("Battery warning snoozed — Keep Going active")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                captionText("Battery warning snoozed — Keep Going active")
             }
 
             if powerManager.isBatteryCutoffActive {
-                Text("Battery cutoff active — keep-awake suspended")
-                    .font(.caption)
-                    .foregroundStyle(.orange)
+                captionText("Battery cutoff active — keep-awake suspended", color: .orange)
             }
         }
     }
