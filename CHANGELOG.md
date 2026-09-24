@@ -11,6 +11,7 @@ Versioning: `CFBundleShortVersionString` (marketing) + `CFBundleVersion` / `CURR
 - **Event-driven diagnostics** — lid, battery drain, AC, thermal state, clamshell override, cutoff skip reasons, and sleep lifecycle (`sleepnow`, `willSleep`, `didWake`) logged to `~/Library/Logs/StayAwake.log`; crash-survivable snapshot at `~/Library/Logs/StayAwake-last-state.json`; launch reconcile distinguishes panic reboot vs missed sleep
 - **Sleep verify + retry** — if `pmset sleepnow` does not put the Mac to sleep within 20s, StayAwake logs it and retries up to 3 times per episode
 - **Open log** button in the popover (reveals log in Finder)
+- **Sleep & Lock** button in the popover — locks the screen, then sleeps immediately
 - **Sleep when too hot** — silent `pmset sleepnow` when macOS thermal pressure is Fair, Serious, or Critical; after-wake alert explains why
 - Heat row in the popover (Nominal / Fair / Serious / Critical, plus approximate temperature)
 - **Menu popover UI** — click the cup icon to open a panel with uptime stats, 24h sleep/wake timeline, and keep-awake toggles

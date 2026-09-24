@@ -4,6 +4,7 @@ struct StatusPopoverView: View {
     @ObservedObject var sessionStore: SessionStore
     @ObservedObject var powerManager: PowerAssertionManager
     @ObservedObject var launchAtLogin: LaunchAtLogin
+    var onSleepAndLock: () -> Void
     var onQuit: () -> Void
 
     var body: some View {
@@ -173,6 +174,10 @@ struct StatusPopoverView: View {
 
             Button("Open log") {
                 ToggleLogger.openLogInFinder()
+            }
+
+            Button("Sleep & Lock") {
+                onSleepAndLock()
             }
 
             Button("Quit") {

@@ -115,6 +115,9 @@ final class StayAwakeAppDelegate: NSObject, NSApplicationDelegate, NSPopoverDele
             sessionStore: sessionStore,
             powerManager: powerManager,
             launchAtLogin: launchAtLogin,
+            onSleepAndLock: { [weak self] in
+                self?.sleepAndLock()
+            },
             onQuit: { [weak self] in
                 self?.quit()
             }
@@ -344,6 +347,11 @@ final class StayAwakeAppDelegate: NSObject, NSApplicationDelegate, NSPopoverDele
         image.isTemplate = true
         image.size = NSSize(width: dimension, height: dimension)
         return image
+    }
+
+    private func sleepAndLock() {
+        popover.performClose(nil)
+        powerManager.sleepAndLockNow()
     }
 
     private func quit() {
