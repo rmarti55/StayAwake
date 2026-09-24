@@ -160,12 +160,14 @@ On disable/quit, restores clamshell sleep unless "official clamshell mode" is ac
 | Lid state | Keep-awake mode | Behavior |
 |---|---|---|
 | Closed | Lid Closed on | **Silent sleep** — suspend keep-awake, 1.5s clamshell handoff, then `pmset sleepnow`; persistent retry with backoff if sleep never starts |
-| Open | Lid Open on | **Warning dialog** — Sleep Now / Keep Going (30 min snooze) |
+| Open | Lid Open on | **Warning dialog** — Sleep Now / Keep Going (30 min snooze of **warnings only**; lid-closed silent sleep is unaffected) |
 | Closed + both on | Both | Silent path wins |
 | Open + both on | Both | Dialog path |
 
 - On **AC power**, cutoff never fires.
-- After wake on battery with lid **closed**, silent cutoff may re-fire. With lid **open**, no auto-resleep loop (fixes flicker).
+- After wake on battery with lid **closed**, silent cutoff may re-fire with persistent retry. With lid **open**, no auto-resleep loop (fixes flicker).
+- Before `sleepnow`, clamshell heartbeat stops and override/assertions release; `[sleep] blocked:` or `[sleep] assertions:` in the log explains failed attempts.
+- **Keep Going** snooze does not disable lid-closed silent cutoff at the battery floor.
 - UI: **Sleep at battery** picker lives under **Keep Awake (Lid Closed)**.
 
 UserDefaults keys: `stayawake.batterySleepThreshold` (`0` = off), `stayawake.batteryCutoffSnoozeUntil` (Unix timestamp).

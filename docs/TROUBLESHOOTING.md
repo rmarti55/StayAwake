@@ -102,7 +102,28 @@ Verify in System Settings → General → Login Items.
 
 If `handoff ready` shows `clamshellCausesSleep=yes`, clamshell override did not release before sleep — file a bug with that line.
 
+Look for `[sleep] blocked:` (StayAwake still holding an assertion) or `[sleep] assertions:` (other apps blocking sleep from `pmset -g assertions`).
+
 **After a kernel panic / reboot:** look for `[init] reconcile: reboot during sleep/wake (last=sleepnow` or `last=willSleep`.
+
+---
+
+### Sleep keeps failing on battery (lid closed)
+
+**Symptoms:** Log shows `battery retry N` for a long time; battery drops below your limit while the Mac stays awake.
+
+**Check from Terminal while it is happening:**
+
+```bash
+pmset -g assertions
+pmset -g log | tail -30
+```
+
+**Common blockers:** Other apps with `PreventUserIdleSystemSleep`, file sharing, remote screen, Bluetooth wake, or macOS power policy on battery.
+
+**StayAwake behavior:** Retries with backoff and logs `[sleep] assertions:` on each retry. After 6 failed attempts you get a one-time notification; retries continue until sleep succeeds, you plug in, or you open the lid.
+
+**Snooze vs lid closed:** **Keep Going** on the lid-open dialog snoozes **warnings only** for 30 minutes. Silent sleep at your battery limit still runs when the lid is closed.
 
 ---
 

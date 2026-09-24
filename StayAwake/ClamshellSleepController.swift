@@ -12,10 +12,18 @@ final class ClamshellSleepController {
     private var wakeObserver: NSObjectProtocol?
     private var desiredEnabled = false
     private var isOnAC = false
+    private var lastLoggedOverrideEnabled: Bool?
+    private var lastLoggedOverrideSuccess: Bool?
+    private var lastStableHeartbeatLogTime: Date?
 
     private static let heartbeatInterval: TimeInterval = 10
+    private static let stableHeartbeatLogInterval: TimeInterval = 3600
 
     var isOverrideActive = false
+
+    var holdsSleepAssertion: Bool {
+        idleSystemAssertionID != 0
+    }
 
     func setOverrideEnabled(_ enabled: Bool, isOnAC: Bool) {
         self.isOnAC = isOnAC
@@ -32,12 +40,25 @@ final class ClamshellSleepController {
             releaseIdleAssertion()
             let restoreResult = restoreClamshellSleepIfNeeded()
             isOverrideActive = false
-            ToggleLogger.logClamshellOverride(
+            logClamshellStateChange(
                 enabled: false,
                 success: restoreResult.map { $0 == kIOReturnSuccess } ?? true,
                 iokitResult: restoreResult
             )
         }
+    }
+
+    /// Release clamshell override and idle assertions before requesting system sleep.
+    func prepareForSystemSleep() {
+        stopHeartbeat()
+        releaseIdleAssertion()
+        if !isOfficialClamshellModeActive() {
+            let result = setClamshellSleepDisabled(false)
+            if result != kIOReturnSuccess {
+                print("StayAwake: prepareForSystemSleep clamshell restore failed: \(result)")
+            }
+        }
+        isOverrideActive = false
     }
 
     func cleanupOnQuit() {
@@ -70,12 +91,42 @@ final class ClamshellSleepController {
 
         if clamshellResult == kIOReturnSuccess {
             isOverrideActive = true
-            ToggleLogger.logClamshellOverride(enabled: true, success: true, iokitResult: clamshellResult)
+            logClamshellStateChange(enabled: true, success: true, iokitResult: clamshellResult)
         } else {
             print("StayAwake: Failed to disable clamshell sleep: \(clamshellResult)")
             isOverrideActive = false
-            ToggleLogger.logClamshellOverride(enabled: true, success: false, iokitResult: clamshellResult)
+            logClamshellStateChange(enabled: true, success: false, iokitResult: clamshellResult)
         }
+    }
+
+    private func logClamshellStateChange(enabled: Bool, success: Bool, iokitResult: IOReturn?) {
+        let stateChanged = lastLoggedOverrideEnabled != enabled || lastLoggedOverrideSuccess != success
+        lastLoggedOverrideEnabled = enabled
+        lastLoggedOverrideSuccess = success
+
+        if stateChanged || !success {
+            lastStableHeartbeatLogTime = nil
+            ToggleLogger.logClamshellOverride(
+                enabled: enabled,
+                success: success,
+                iokitResult: iokitResult.map { Int32($0) }
+            )
+            return
+        }
+
+        guard ToggleLogger.verboseLogging else { return }
+
+        let now = Date()
+        if let last = lastStableHeartbeatLogTime,
+           now.timeIntervalSince(last) < Self.stableHeartbeatLogInterval {
+            return
+        }
+        lastStableHeartbeatLogTime = now
+        ToggleLogger.logClamshellOverride(
+            enabled: enabled,
+            success: success,
+            iokitResult: iokitResult.map { Int32($0) }
+        )
     }
 
     private func setClamshellSleepDisabled(_ disable: Bool) -> IOReturn {
@@ -195,7 +246,8 @@ final class ClamshellSleepController {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.applyOverride()
+            guard let self, self.desiredEnabled else { return }
+            self.applyOverride()
         }
     }
 

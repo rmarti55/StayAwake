@@ -26,6 +26,8 @@
 		AA0000010000000000000017 /* ThermalMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000018 /* ThermalMonitor.swift */; };
 		AA0000010000000000000018 /* ThermalSleepAlert.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000019 /* ThermalSleepAlert.swift */; };
 		AA0000010000000000000019 /* ScreenLock.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000020 /* ScreenLock.swift */; };
+		AA0000010000000000000020 /* SleepDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000021 /* SleepDiagnostics.swift */; };
+		AA0000010000000000000021 /* BatterySleepNotifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000022 /* BatterySleepNotifier.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -49,6 +51,8 @@
 		AA0000020000000000000018 /* ThermalMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThermalMonitor.swift; sourceTree = "<group>"; };
 		AA0000020000000000000019 /* ThermalSleepAlert.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThermalSleepAlert.swift; sourceTree = "<group>"; };
 		AA0000020000000000000020 /* ScreenLock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenLock.swift; sourceTree = "<group>"; };
+		AA0000020000000000000021 /* SleepDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepDiagnostics.swift; sourceTree = "<group>"; };
+		AA0000020000000000000022 /* BatterySleepNotifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatterySleepNotifier.swift; sourceTree = "<group>"; };
 		AA0000030000000000000001 /* StayAwake.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = StayAwake.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -92,6 +96,8 @@
 				AA0000020000000000000018 /* ThermalMonitor.swift */,
 				AA0000020000000000000019 /* ThermalSleepAlert.swift */,
 				AA0000020000000000000020 /* ScreenLock.swift */,
+				AA0000020000000000000021 /* SleepDiagnostics.swift */,
+				AA0000020000000000000022 /* BatterySleepNotifier.swift */,
 				AA0000020000000000000004 /* Assets.xcassets */,
 				AA0000020000000000000005 /* Info.plist */,
 			);
@@ -193,6 +199,8 @@
 				AA0000010000000000000017 /* ThermalMonitor.swift in Sources */,
 				AA0000010000000000000018 /* ThermalSleepAlert.swift in Sources */,
 				AA0000010000000000000019 /* ScreenLock.swift in Sources */,
+				AA0000010000000000000020 /* SleepDiagnostics.swift in Sources */,
+				AA0000010000000000000021 /* BatterySleepNotifier.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

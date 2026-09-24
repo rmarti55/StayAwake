@@ -8,6 +8,17 @@ Versioning: `CFBundleShortVersionString` (marketing) + `CFBundleVersion` / `CURR
 
 ### Added
 
+- **Sleep failure diagnostics** — `[sleep] blocked:` when StayAwake still holds assertions; `[sleep] assertions:` snapshot from `pmset -g assertions` on each battery retry; one-time notification after 6 failed sleep attempts
+- **Verbose log flag** — `defaults write com.stayawake.app stayawake.verboseLog -bool true` for hourly clamshell heartbeat lines (default: state-change only)
+
+### Changed
+
+- **Snooze semantics** — Keep Going snoozes lid-open warnings only; lid-closed silent sleep at the battery limit still runs while snoozed
+- **Battery cutoff episode state** — no duplicate silent cutoff lines after `willSleep`; handoff explicitly releases clamshell before `sleepnow`
+- Popover shows **Trying to sleep — attempt N** during battery retry; updated snooze copy in dialog and popover
+
+### Added (earlier unreleased)
+
 - **Event-driven diagnostics** — lid, battery drain, AC, thermal state, clamshell override, cutoff skip reasons, and sleep lifecycle (`sleepnow`, `willSleep`, `didWake`) logged to `~/Library/Logs/StayAwake.log`; crash-survivable snapshot at `~/Library/Logs/StayAwake-last-state.json`; launch reconcile distinguishes panic reboot vs missed sleep
 - **Sleep verify + retry** — if `pmset sleepnow` does not put the Mac to sleep within 20s, StayAwake logs it and retries up to 3 times per episode
 - **Open log** button in the popover (reveals log in Finder)

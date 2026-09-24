@@ -47,6 +47,12 @@ private struct PersistedDiagnosticState: Codable {
 }
 
 enum ToggleLogger {
+    static let verboseLogKey = "stayawake.verboseLog"
+
+    static var verboseLogging: Bool {
+        UserDefaults.standard.bool(forKey: verboseLogKey)
+    }
+
     private static let logURL: URL = {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Logs", isDirectory: true)
@@ -156,6 +162,19 @@ enum ToggleLogger {
 
     static func logCutoffSkipped(reason: String, snapshot: DiagnosticSnapshot) {
         write("\(timestamp()) [battery] cutoff skipped: \(reason) | \(snapshot.compactDescription())")
+    }
+
+    static func logSleepBlocked(reason: String, snapshot: DiagnosticSnapshot) {
+        write("\(timestamp()) [sleep] blocked: \(reason) | \(snapshot.compactDescription())")
+    }
+
+    static func logSleepAssertionsSummary(_ summary: String) {
+        let trimmed = summary.count > 1200 ? String(summary.prefix(1200)) + "…" : summary
+        write("\(timestamp()) [sleep] assertions: \(trimmed)")
+    }
+
+    static func logBatteryRetryUserNotified(attempt: Int) {
+        write("\(timestamp()) [battery] retry cap: user notified (attempt \(attempt))")
     }
 
     static func logBatteryCutoff(percent: Int, threshold: Int) {

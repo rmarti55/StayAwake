@@ -12,6 +12,8 @@ enum BatteryCutoffAlert {
             alert.messageText = "Low battery — sleep?"
             alert.informativeText = """
             Battery is at \(percent)%. Your \(threshold)% sleep limit was reached. Put the computer to sleep?
+
+            Keep Going pauses this warning for 30 minutes. If you close the lid, silent sleep at \(threshold)% still runs.
             """
             alert.alertStyle = .warning
             alert.addButton(withTitle: "Sleep Now")

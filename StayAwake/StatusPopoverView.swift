@@ -222,7 +222,14 @@ struct StatusPopoverView: View {
             }
 
             if powerManager.isBatteryCutoffSnoozed {
-                captionText("Battery warning snoozed — Keep Going active")
+                captionText("Warnings snoozed 30 min — lid-closed sleep at limit still applies")
+            }
+
+            if powerManager.isBatterySleepRetryInProgress {
+                captionText(
+                    "Trying to sleep — attempt \(powerManager.batterySleepRetryAttempt)",
+                    color: .orange
+                )
             }
 
             if powerManager.isBatteryCutoffActive {
